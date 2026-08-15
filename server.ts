@@ -62,30 +62,64 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     const cleanUser = String(username).trim().toLowerCase();
+    const inputHash = hashPasswordBackend(password);
 
     // 1. If Google Apps Script URL is provided, try verifying against GAS USERS sheet
     if (webAppUrl) {
       try {
         const gasRes = await fetch(webAppUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
           body: JSON.stringify({
             action: "loginUser",
+            username: cleanUser,
+            password: password,
             data: { username: cleanUser, password },
           }),
         });
         const gasData = await gasRes.json();
         if (gasData && gasData.status === "success") {
-          return res.json(gasData);
+          const token = Buffer.from(`${cleanUser}:${Date.now()}:${Math.random()}`).toString("base64");
+          return res.json({
+            status: "success",
+            token,
+            user: {
+              id: gasData.user?.id || `usr_${cleanUser}`,
+              username: cleanUser,
+              full_name: gasData.user?.name || gasData.user?.full_name || cleanUser,
+              email: gasData.user?.email || `${cleanUser}@mywang.app`,
+              role: cleanUser === "admin" ? "admin" : "member",
+              currency: "MYR",
+            },
+          });
         }
       } catch (gasErr) {
-        console.warn("GAS Auth forward failed, testing server fallback:", gasErr);
+        console.warn("GAS Auth forward failed, checking server database:", gasErr);
       }
     }
 
-    // 2. Server-side hashed credential comparison (No plain strings sent to client bundle)
-    // Hashed admin password for 'admin123' or 'admin' or 'fifi'/'123456'
-    const inputHash = hashPasswordBackend(password);
+    // 2. Check custom registered users in server database
+    const serverDb = readServerData();
+    if (serverDb && serverDb.users && serverDb.users[cleanUser]) {
+      const savedUser = serverDb.users[cleanUser];
+      if (savedUser.passwordHash === inputHash || (Array.isArray(savedUser.hashes) && savedUser.hashes.includes(inputHash))) {
+        const token = Buffer.from(`${cleanUser}:${Date.now()}:${Math.random()}`).toString("base64");
+        return res.json({
+          status: "success",
+          token,
+          user: {
+            id: savedUser.id || `usr_${cleanUser}`,
+            username: cleanUser,
+            full_name: savedUser.name || savedUser.full_name || cleanUser,
+            email: savedUser.email || `${cleanUser}@mywang.app`,
+            role: savedUser.role || (cleanUser === "admin" ? "admin" : "member"),
+            currency: savedUser.currency || "MYR",
+          },
+        });
+      }
+    }
+
+    // 3. Server-side hashed default credentials
     const validHashes: Record<string, { hash: string[]; name: string; role: string; email: string }> = {
       admin: {
         hash: [
@@ -94,25 +128,30 @@ app.post("/api/auth/login", async (req, res) => {
           hashPasswordBackend("123456"),
         ],
         name: "Pentadbir MyWang (Admin)",
-        role: "Owner",
+        role: "admin",
         email: "admin@mywang.app",
       },
       fifi: {
         hash: [hashPasswordBackend("123456"), hashPasswordBackend("fifi123")],
         name: "Fifi Haziq",
-        role: "Owner",
+        role: "admin",
         email: "fifinoty@gmail.com",
       },
       firdaus: {
-        hash: [hashPasswordBackend("123456"), hashPasswordBackend("firdaus123"), hashPasswordBackend("admin123"), hashPasswordBackend("admin")],
+        hash: [
+          hashPasswordBackend("123456"),
+          hashPasswordBackend("firdaus123"),
+          hashPasswordBackend("admin123"),
+          hashPasswordBackend("admin"),
+        ],
         name: "Firdaus (SakuTrack)",
-        role: "Owner",
+        role: "admin",
         email: "fifinoty@gmail.com",
       },
       user: {
         hash: [hashPasswordBackend("user123"), hashPasswordBackend("123456")],
         name: "Pengguna MyWang",
-        role: "Member",
+        role: "member",
         email: "user@mywang.app",
       },
     };
@@ -134,6 +173,7 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
+    // Strictly reject invalid username or password
     return res.status(401).json({
       status: "error",
       message: "Nama pengguna atau kata laluan tidak sah.",
@@ -143,6 +183,53 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(500).json({
       status: "error",
       message: "Ralat pelayan semasa pengesahan log masuk.",
+    });
+  }
+});
+
+// Register New User API
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { username, password, name, email } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({
+        status: "error",
+        message: "Sila lengkapkan nama pengguna dan kata laluan.",
+      });
+    }
+    const cleanUser = String(username).trim().toLowerCase();
+    const serverDb = readServerData() || {};
+    const users = serverDb.users || {};
+
+    if (users[cleanUser]) {
+      return res.status(400).json({
+        status: "error",
+        message: "Nama pengguna ini sudah didaftarkan.",
+      });
+    }
+
+    const passwordHash = hashPasswordBackend(password.trim());
+    users[cleanUser] = {
+      id: `usr_${cleanUser}_${Date.now()}`,
+      username: cleanUser,
+      name: name || cleanUser,
+      email: email || `${cleanUser}@mywang.app`,
+      passwordHash,
+      role: "member",
+      created_at: new Date().toISOString(),
+    };
+
+    serverDb.users = users;
+    saveServerData(serverDb);
+
+    return res.json({
+      status: "success",
+      message: "Pendaftaran akaun berjaya! Anda kini boleh log masuk.",
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      status: "error",
+      message: "Gagal mendaftar pengguna: " + (err.message || String(err)),
     });
   }
 });
@@ -433,10 +520,10 @@ app.post("/api/backend-data", (req, res) => {
   }
 });
 
-// Proxy to Google Apps Script Web App (Bypasses CORS restrictions & integrates with SakuTrack)
+// Proxy to Google Apps Script Web App (Bypasses CORS restrictions & integrates with SakuTrack & MyWang AppsScript)
 app.post("/api/gas-proxy", async (req, res) => {
   try {
-    const { webAppUrl, action, username = "firdaus", data = {} } = req.body;
+    const { webAppUrl, action, username = "admin", data = {} } = req.body;
 
     if (!webAppUrl) {
       return res.status(400).json({
@@ -445,63 +532,136 @@ app.post("/api/gas-proxy", async (req, res) => {
       });
     }
 
-    const cleanUser = String(username || "firdaus").trim().toLowerCase();
+    const cleanUser = String(username || "admin").trim().toLowerCase();
 
-    // 1. Handle getInitialData / get_transactions from SakuTrack
-    if (action === "getInitialData" || action === "get_transactions") {
+    const fetchGas = async (act: string, customPayload: any = null) => {
+      const payload = customPayload || { action: act, data, username: cleanUser, ...data };
+      const r = await fetch(webAppUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+      });
+      const text = await r.text();
       try {
-        const sakuRes = await fetch(webAppUrl, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ action: "get_transactions", username: cleanUser }),
-        });
-        const sakuData = await sakuRes.json();
-
-        if (sakuData && sakuData.status === "success" && Array.isArray(sakuData.transactions)) {
-          // Normalize SakuTrack transactions into MyWang Schema
-          const mappedTransactions = sakuData.transactions.map((tx: any) => ({
-            id: String(tx.id || `TX_${Date.now()}_${Math.random()}`),
-            date: parseSakuTrackDate(tx.date),
-            type: tx.type === "income" ? "income" : "expense",
-            category: tx.category || "Lain-lain",
-            amount: parseFloat(tx.amount) || 0,
-            account_id: mapSourceToAccountId(tx.source || tx.method),
-            account_name: tx.source || tx.method || "Maybank",
-            note: tx.note || "",
-            receipt_url: tx.receipt || undefined,
-            created_at: String(tx.date || new Date().toISOString()),
-          }));
-
-          return res.json({
-            status: "success",
-            source: "sakutrack",
-            message: `Berjaya diselaraskan dengan ${mappedTransactions.length} rekod dari SakuTrack!`,
-            data: {
-              transactions: mappedTransactions,
-            },
-          });
-        }
-      } catch (sakuErr) {
-        console.warn("SakuTrack direct get_transactions failed, trying native GAS:", sakuErr);
+        return JSON.parse(text);
+      } catch {
+        return { status: "raw", text };
       }
+    };
+
+    // 1. Handle getInitialData / getDashboard / syncDashboard / get_transactions
+    if (action === "getInitialData" || action === "getDashboard" || action === "syncDashboard" || action === "get_transactions" || action === "getTransactions") {
+      let result: any = null;
+
+      // Try 1: SakuTrack get_transactions
+      try {
+        const sakuRes = await fetchGas("get_transactions", { action: "get_transactions", username: cleanUser });
+        if (sakuRes && sakuRes.status === "success" && Array.isArray(sakuRes.transactions)) {
+          result = sakuRes;
+        }
+      } catch {}
+
+      // Try 2: getDashboard
+      if (!result) {
+        try {
+          const dashRes = await fetchGas("getDashboard", { action: "getDashboard", username: cleanUser, token: cleanUser });
+          if (dashRes && (dashRes.status === "success" || dashRes.transactions || dashRes.accounts)) {
+            result = dashRes;
+          }
+        } catch {}
+      }
+
+      // Try 3: getTransactions
+      if (!result) {
+        try {
+          const txRes = await fetchGas("getTransactions", { action: "getTransactions", username: cleanUser });
+          if (txRes && (txRes.status === "success" || Array.isArray(txRes.data) || Array.isArray(txRes.transactions))) {
+            result = txRes;
+          }
+        } catch {}
+      }
+
+      // Try 4: Direct pass-through
+      if (!result) {
+        try {
+          result = await fetchGas(action);
+        } catch {}
+      }
+
+      if (result) {
+        const rawTxs = result.transactions || result.data?.transactions || (Array.isArray(result.data) ? result.data : []) || [];
+        const mappedTransactions = Array.isArray(rawTxs) ? rawTxs.map((tx: any) => ({
+          id: String(tx.id || `TX_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
+          date: parseSakuTrackDate(tx.date),
+          type: tx.type === "income" ? "income" : "expense",
+          category: tx.category || "Lain-lain",
+          amount: parseFloat(tx.amount) || 0,
+          account_id: tx.account_id || mapSourceToAccountId(tx.source || tx.method || tx.account_name),
+          account_name: tx.account_name || tx.source || tx.method || "Maybank",
+          note: tx.note || "",
+          receipt_url: tx.receipt || tx.receipt_url || undefined,
+          created_at: String(tx.date || new Date().toISOString()),
+        })) : [];
+
+        const rawAccounts = result.accounts || result.data?.accounts || [];
+        const accountsData = Array.isArray(rawAccounts) && rawAccounts.length > 0 ? rawAccounts : undefined;
+
+        // Auto backup into server data file
+        const currentDb = readServerData() || {};
+        if (mappedTransactions.length > 0) {
+          currentDb.transactions = mappedTransactions;
+        }
+        if (accountsData) {
+          currentDb.accounts = accountsData;
+        }
+        currentDb.last_gas_synced = new Date().toISOString();
+        saveServerData(currentDb);
+
+        return res.json({
+          status: "success",
+          source: result.source || "google_apps_script",
+          message: `Berjaya diselaraskan dengan ${mappedTransactions.length} rekod dari Google Sheets!`,
+          data: {
+            transactions: mappedTransactions,
+            accounts: accountsData,
+          },
+        });
+      }
+
+      return res.json({
+        status: "success",
+        message: "Google Apps Script dihubungi (Tiada data baru).",
+        data: { transactions: [], accounts: [] },
+      });
     }
 
     // 2. Handle testConnection
     if (action === "testConnection") {
+      let isOk = false;
+      let count = 0;
       try {
-        const testRes = await fetch(webAppUrl, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ action: "get_transactions", username: cleanUser }),
-        });
-        const testData = await testRes.json();
-        if (testData && testData.status === "success") {
-          return res.json({
-            status: "success",
-            message: `Sambungan ke SakuTrack Google Sheets Berjaya! (${testData.transactions?.length || 0} rekod dikesan)`,
-          });
+        const sakuRes = await fetchGas("get_transactions", { action: "get_transactions", username: cleanUser });
+        if (sakuRes && sakuRes.status === "success") {
+          isOk = true;
+          count = sakuRes.transactions?.length || 0;
         }
       } catch {}
+
+      if (!isOk) {
+        try {
+          const pingRes = await fetchGas("ping");
+          if (pingRes && (pingRes.status === "success" || pingRes.status === "ok")) {
+            isOk = true;
+          }
+        } catch {}
+      }
+
+      if (isOk) {
+        return res.json({
+          status: "success",
+          message: `Sambungan ke Google Sheets Berjaya! (${count} rekod dikesan)`,
+        });
+      }
     }
 
     // 3. Handle addTransaction / add_transaction
@@ -519,54 +679,55 @@ app.post("/api/gas-proxy", async (req, res) => {
           discount: parseFloat(data.discount) || 0,
           note: data.note || "",
           receipt: data.receipt_url || null,
+          data: data,
         };
 
-        const addRes = await fetch(webAppUrl, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(addPayload),
-        });
-        const addResult = await addRes.json();
-        if (addResult && addResult.status === "success") {
-          return res.json(addResult);
+        let addRes = await fetchGas("add_transaction", addPayload);
+        if (!addRes || addRes.status === "error") {
+          addRes = await fetchGas("addTransaction", { action: "addTransaction", data, username: cleanUser });
+        }
+        if (addRes && addRes.status === "success") {
+          return res.json(addRes);
         }
       } catch (addErr) {
-        console.warn("SakuTrack add_transaction fallback:", addErr);
+        console.warn("GAS add_transaction fallback error:", addErr);
       }
     }
 
     // 4. Handle deleteTransaction / delete_transaction
     if (action === "deleteTransaction" || action === "delete_transaction") {
       try {
-        const delRes = await fetch(webAppUrl, {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            action: "delete_transaction",
-            txId: data.id || data.txId,
-            username: cleanUser,
-          }),
+        let delRes = await fetchGas("delete_transaction", {
+          action: "delete_transaction",
+          txId: data.id || data.txId,
+          username: cleanUser,
         });
-        const delResult = await delRes.json();
-        if (delResult && delResult.status === "success") {
-          return res.json(delResult);
+        if (!delRes || delRes.status === "error") {
+          delRes = await fetchGas("deleteTransaction", {
+            action: "deleteTransaction",
+            data: { id: data.id || data.txId },
+            username: cleanUser,
+          });
+        }
+        if (delRes && delRes.status === "success") {
+          return res.json(delRes);
         }
       } catch (delErr) {
-        console.warn("SakuTrack delete_transaction fallback:", delErr);
+        console.warn("GAS delete_transaction fallback error:", delErr);
       }
     }
 
-    // Standard Native Apps Script Pass-Through
-    const response = await fetch(webAppUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify({ action, data, username: cleanUser }),
-    });
+    // 5. Standard Native Apps Script Pass-Through with smart fallback
+    const directResult = await fetchGas(action);
+    if (directResult && directResult.status === "error" && (directResult.message?.includes("tidak dikenali") || directResult.message?.includes("Unknown"))) {
+      // Fallback to query transactions if unknown
+      const fallbackRes = await fetchGas("get_transactions", { action: "get_transactions", username: cleanUser });
+      if (fallbackRes && fallbackRes.status === "success") {
+        return res.json(fallbackRes);
+      }
+    }
 
-    const result = await response.json();
-    return res.json(result);
+    return res.json(directResult);
   } catch (err: any) {
     console.error("Google Apps Script proxy error:", err);
     return res.status(500).json({
