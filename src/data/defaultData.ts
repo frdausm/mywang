@@ -1,13 +1,11 @@
-import { Account, CategoryItem, Transaction, User, AuditLog, LoanFinancing } from '../types';
+import { Account, CategoryBudget, FinancialGoal, DebtRecord, Transaction, CategoryItem, User } from '../types';
 
 export const DEFAULT_USER: User = {
-  id: 'usr_001',
+  id: 'usr_admin',
   username: 'admin',
-  full_name: 'Fifi Haziq',
-  email: 'fifinoty@gmail.com',
-  currency: 'MYR',
-  role: 'Owner',
-  avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  name: 'Pentadbir (Admin)',
+  role: 'admin',
+  created_at: new Date().toISOString()
 };
 
 export const INITIAL_ACCOUNTS: Account[] = [
