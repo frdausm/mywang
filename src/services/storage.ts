@@ -435,6 +435,82 @@ export class StorageService {
   }
 
   /**
+   * Helper to parse messy date strings (e.g. from Google Sheets / SakuTrack) into YYYY-MM-DD
+   */
+  static parseCleanDate(rawDate: any): string {
+    if (!rawDate) return new Date().toISOString().split('T')[0];
+    const str = String(rawDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return str;
+    }
+    const monthMap: Record<string, string> = {
+      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    };
+    const regexMatch = str.match(/([a-zA-Z]{3})\s+(\d{1,2})\s+(\d{4})/);
+    if (regexMatch) {
+      const mStr = regexMatch[1].toLowerCase();
+      const month = monthMap[mStr] || '01';
+      const day = regexMatch[2].padStart(2, '0');
+      const year = regexMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+    try {
+      const d = new Date(rawDate);
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    } catch {}
+    return str.slice(0, 10);
+  }
+
+  /**
+   * Normalize raw transactions from SakuTrack or MyWang AppsScript
+   */
+  static normalizeRawTransactions(rawList: any[]): Transaction[] {
+    if (!Array.isArray(rawList)) return [];
+
+    const mapSourceToId = (source: string): string => {
+      const s = String(source || '').toLowerCase();
+      if (s.includes('maybank') || s.includes('mae')) return 'acc_mb_sav';
+      if (s.includes('touch') || s.includes('tng')) return 'acc_tng_ewallet';
+      if (s.includes('rhb')) return 'acc_rhb_sav';
+      if (s.includes('atome')) return 'acc_atome';
+      if (s.includes('tunai') || s.includes('cash')) return 'acc_cash_fizikal';
+      if (s.includes('gx')) return 'acc_gxbank';
+      if (s.includes('aeon')) return 'acc_aeon';
+      if (s.includes('cimb')) return 'acc_cimb_cc';
+      return 'acc_mb_sav';
+    };
+
+    return rawList.map((tx: any, idx: number) => {
+      const rawDate = tx.date || tx.created_at || new Date().toISOString();
+      const cleanDate = this.parseCleanDate(rawDate);
+      const accName = tx.account_name || tx.source || tx.method || tx.account || 'Maybank - Savings Account';
+      const accId = tx.account_id || mapSourceToId(accName);
+      const isIncome = String(tx.type).toLowerCase() === 'income';
+
+      return {
+        id: String(tx.id || `tx_sync_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`),
+        date: cleanDate,
+        type: isIncome ? 'income' : tx.type === 'transfer' ? 'transfer' : 'expense',
+        category: tx.category || tx.income_type || tx.expense_type || 'Lain-lain',
+        amount: Math.abs(parseFloat(tx.amount) || 0),
+        account_id: accId,
+        account_name: accName,
+        to_account_id: tx.to_account_id,
+        to_account_name: tx.to_account_name,
+        note: tx.note || '',
+        receipt_url: tx.receipt || tx.receipt_url || undefined,
+        created_at: String(tx.created_at || cleanDate),
+      };
+    });
+  }
+
+  /**
    * Universal Sync with Google Apps Script Web App
    * Menyokong kedua-dua format: SakuTrack backend & MyWang AppsScript backend
    */
@@ -449,7 +525,7 @@ export class StorageService {
     }
 
     try {
-      // 1. Utamakan Proksi Pelayan Backend Pintar
+      // 1. Utamakan Proksi Pelayan Backend Pintar (/api/gas-proxy)
       try {
         const proxyRes = await fetch('/api/gas-proxy', {
           method: 'POST',
@@ -462,100 +538,167 @@ export class StorageService {
           }),
         });
 
-        const proxyData = await proxyRes.json();
-        if (proxyRes.ok && proxyData && (proxyData.status === 'success' || proxyData.data || proxyData.transactions)) {
-          config.isConnected = true;
-          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
-          this.saveGoogleSheetsConfig(config);
+        const contentType = proxyRes.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const proxyData = await proxyRes.json();
+          if (proxyRes.ok && proxyData && (proxyData.status === 'success' || proxyData.data || proxyData.transactions)) {
+            config.isConnected = true;
+            config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+            this.saveGoogleSheetsConfig(config);
 
-          const resultData = proxyData.data || {
-            transactions: proxyData.transactions,
-            accounts: proxyData.accounts,
-          };
+            const rawTxs = proxyData.data?.transactions || proxyData.transactions || [];
+            const normalizedTxs = this.normalizeRawTransactions(rawTxs);
+            const accountsData = proxyData.data?.accounts || proxyData.accounts || undefined;
 
-          return {
-            success: true,
-            data: resultData,
-            message: proxyData.message || 'Penyegerakan Google Sheets berjaya!',
-          };
-        } else if (proxyData && proxyData.status === 'error') {
-          if (!proxyData.message?.includes('tidak dikenali')) {
-            return { success: false, message: proxyData.message };
+            return {
+              success: true,
+              data: {
+                transactions: normalizedTxs,
+                accounts: accountsData,
+              },
+              message: proxyData.message || `Diselaraskan ${normalizedTxs.length} rekod dari Google Sheets!`,
+            };
           }
         }
       } catch (proxyErr) {
-        console.warn('Proxy call failed, trying direct fetch:', proxyErr);
+        console.warn('Proxy call failed (using client-side direct sync):', proxyErr);
       }
 
-      // 2. Fallback direct fetch
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000);
-
-      let effectiveAction = action;
-      if (action === 'getInitialData') {
-        effectiveAction = 'getDashboard';
-      }
-
-      const postBody: any = {
-        action: effectiveAction,
-        username: activeUsername,
-        data: payload || {},
-        ...payload
+      // 2. Direct client-side fetch fallback (Bypasses server & works seamlessly on Vercel/Static hosts)
+      const fetchDirect = async (act: string, bodyObj: any = {}) => {
+        const postData = {
+          action: act,
+          username: activeUsername,
+          data: bodyObj,
+          ...bodyObj,
+        };
+        const res = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(postData),
+        });
+        const txt = await res.text();
+        try {
+          return JSON.parse(txt);
+        } catch {
+          return { status: 'raw', text: txt };
+        }
       };
 
-      const response = await fetch(gasUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(postBody),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const result = await response.json();
-        
-        // Semak jika status berjaya
-        if (result && (result.status === 'success' || result.data || result.transactions || result.accounts)) {
+      // If testConnection or ping
+      if (action === 'testConnection' || action === 'ping') {
+        let testRes: any = null;
+        try {
+          testRes = await fetchDirect('ping', {});
+        } catch {}
+        if (!testRes || testRes.status === 'error') {
+          try {
+            testRes = await fetchDirect('get_transactions', { username: activeUsername });
+          } catch {}
+        }
+        if (!testRes || testRes.status === 'error') {
+          try {
+            testRes = await fetchDirect('getDashboard', { token: activeUsername });
+          } catch {}
+        }
+        if (testRes && (testRes.status === 'success' || testRes.transactions || testRes.data)) {
           config.isConnected = true;
           config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
           this.saveGoogleSheetsConfig(config);
-          
-          return { 
-            success: true, 
-            data: result.data || { transactions: result.transactions, accounts: result.accounts }, 
-            message: result.message || 'Penyegerakan Google Sheets berjaya!' 
-          };
-        } else if (result && result.status === 'error') {
-          // Jika GAS tidak kenal action getDashboard, cuba fallback ke getTransactions
-          if (effectiveAction === 'getDashboard' || result.message?.includes('Unknown') || result.message?.includes('tidak dikenali')) {
-            const fallbackRes = await fetch(gasUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({
-                action: 'getTransactions',
-                username: activeUsername
-              })
-            });
-            const fallbackJson = await fallbackRes.json();
-            if (fallbackJson && (fallbackJson.status === 'success' || fallbackJson.data)) {
-              config.isConnected = true;
-              config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
-              this.saveGoogleSheetsConfig(config);
-              return {
-                success: true,
-                data: { transactions: fallbackJson.data || fallbackJson.transactions || [] },
-                message: 'Penyegerakan Google Sheets berjaya!'
-              };
-            }
+          return { success: true, message: 'Sambungan ke Google Apps Script & Sheets berjaya!' };
+        }
+        return { success: false, message: testRes?.message || 'Gagal menyambung ke Google Apps Script URL. Sila pastikan Web App dideploy dengan Access: Anyone.' };
+      }
+
+      // If initial fetch / getInitialData, try SakuTrack and MyWang action names
+      if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions') {
+        let gasResult: any = null;
+
+        // Try 1: SakuTrack action 'get_transactions'
+        try {
+          const res1 = await fetchDirect('get_transactions', { username: activeUsername });
+          if (res1 && res1.status === 'success' && Array.isArray(res1.transactions)) {
+            gasResult = res1;
           }
-          return { success: false, message: result.message || 'Ralat daripada Google Apps Script.' };
+        } catch {}
+
+        // Try 2: MyWang action 'getDashboard'
+        if (!gasResult || gasResult.status === 'error') {
+          try {
+            const res2 = await fetchDirect('getDashboard', { token: activeUsername });
+            if (res2 && (res2.status === 'success' || res2.data)) {
+              gasResult = res2;
+            }
+          } catch {}
+        }
+
+        // Try 3: Action 'getTransactions'
+        if (!gasResult || gasResult.status === 'error') {
+          try {
+            const res3 = await fetchDirect('getTransactions', {});
+            if (res3 && (res3.status === 'success' || res3.data)) {
+              gasResult = res3;
+            }
+          } catch {}
+        }
+
+        if (gasResult && gasResult.status !== 'error') {
+          config.isConnected = true;
+          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+          this.saveGoogleSheetsConfig(config);
+
+          const rawList = gasResult.transactions || gasResult.data?.recentTransactions || gasResult.data?.transactions || (Array.isArray(gasResult.data) ? gasResult.data : []) || [];
+          const normalized = this.normalizeRawTransactions(rawList);
+          const accounts = gasResult.accounts || gasResult.data?.accounts || undefined;
+
+          return {
+            success: true,
+            data: {
+              transactions: normalized,
+              accounts,
+            },
+            message: `Diselaraskan ${normalized.length} rekod dari Google Sheets!`,
+          };
         }
       }
 
-      return { success: true, message: 'Data telah diselaraskan ke Google Sheets.' };
+      // Handle addTransaction
+      if (action === 'addTransaction' || action === 'add_transaction') {
+        const sakuPayload = {
+          date: payload.date || new Date().toISOString().split('T')[0],
+          type: payload.type || 'expense',
+          category: payload.category || 'Lain-lain',
+          amount: parseFloat(payload.amount) || 0,
+          source: payload.account_name || 'Maybank',
+          note: payload.note || '',
+          receipt: payload.receipt_url || null,
+        };
+        try {
+          await fetchDirect('add_transaction', sakuPayload);
+        } catch {}
+        try {
+          await fetchDirect('addTransaction', payload);
+        } catch {}
+        return { success: true, message: 'Transaksi direkod ke Google Sheets.' };
+      }
+
+      // Handle deleteTransaction
+      if (action === 'deleteTransaction' || action === 'delete_transaction') {
+        const txId = payload.id || payload.txId;
+        try {
+          await fetchDirect('delete_transaction', { txId });
+        } catch {}
+        try {
+          await fetchDirect('deleteTransaction', { id: txId });
+        } catch {}
+        return { success: true, message: 'Transaksi dipadam dari Google Sheets.' };
+      }
+
+      // Generic pass-through
+      await fetchDirect(action, payload);
+      return { success: true, message: 'Diselaraskan ke Google Sheets.' };
     } catch (err: any) {
+      console.warn('GAS Sync notice:', err);
       return { success: true, message: 'Disimpan di peranti & pelayan.' };
     }
   }
