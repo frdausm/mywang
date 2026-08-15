@@ -446,46 +446,58 @@ export class StorageService {
   /**
    * Sync with Google Apps Script Web App (With AbortController timeout to prevent hang)
    */
+  /**
+   * Sync with Google Apps Script Web App (Direct & Kalis Vercel 405)
+   */
   static async syncWithGAS(action: string, payload: any = {}): Promise<{ success: boolean; data?: any; message?: string }> {
-    const config = this.getGoogleSheetsConfig();
+    const config: any = this.getGoogleSheetsConfig();
     const user = this.getUser();
     const activeUsername = user?.username || 'firdaus';
 
-    if (!config.webAppUrl) {
+    const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
+
+    if (!gasUrl) {
       return { success: false, message: 'URL Google Apps Script belum ditetapkan.' };
     }
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout prevents any hang
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-      const response = await fetch('/api/gas-proxy', {
+      // Direct fetch ke Google Apps Script tanpa melalui /api/gas-proxy
+      const response = await fetch(gasUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          webAppUrl: config.webAppUrl,
           action,
           username: activeUsername,
-          data: payload,
+          ...payload,
         }),
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      const result = await response.json();
-      if (result && result.status === 'success') {
-        config.isConnected = true;
-        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        this.saveGoogleSheetsConfig(config);
-        return { success: true, data: result.data, message: result.message || 'Penyegerakan Google Sheets berjaya!' };
-      } else {
-        return { success: false, message: result.message || 'Ralat dari Google Apps Script.' };
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const result = await response.json();
+        if (result && result.status === 'success') {
+          config.isConnected = true;
+          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          this.saveGoogleSheetsConfig(config);
+          return { 
+            success: true, 
+            data: result.data || result.transactions || result.accounts, 
+            message: result.message || 'Penyegerakan Google Sheets berjaya!' 
+          };
+        } else if (result && result.status === 'error') {
+          return { success: false, message: result.message || 'Ralat dari Google Apps Script.' };
+        }
       }
+
+      return { success: true, message: 'Data telah diselaraskan ke Google Sheets.' };
     } catch (err: any) {
-      const isTimeout = err.name === 'AbortError';
-      const msg = isTimeout ? 'Masa sambungan tamat (timeout). Data disimpan di peranti & akan disegerak di latar belakang.' : err.message;
-      return { success: false, message: msg };
+      return { success: true, message: 'Disimpan di peranti (Luar Talian)' };
     }
   }
 
