@@ -43,75 +43,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      // 1. Cuba log masuk terus ke Google Apps Script SakuTrack jika URL ada
+      // Dapatkan URL Google Apps Script jika ada disimpan
       let gasUrl = '';
       try {
         const rawSettings = localStorage.getItem(SETTINGS_KEY);
         if (rawSettings) {
           const parsed = JSON.parse(rawSettings);
-          gasUrl = parsed.gas_web_app_url || parsed.google_sheets_url || parsed.sakutrack_sheets_url || '';
+          gasUrl = parsed.gas_web_app_url || parsed.google_sheets_url || parsed.sakutrack_sheets_url || parsed.webAppUrl || '';
         }
       } catch (err) {}
 
-      if (gasUrl) {
-        try {
-          const response = await fetch(gasUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'login',
-              username: cleanUser,
-              password: cleanPass
-            })
-          });
-          const result = await response.json();
-          if (result && result.status === 'success') {
-            const sessionUser: User = {
-              id: 'usr_' + Date.now(),
-              username: result.username || cleanUser,
-              name: result.username || cleanUser,
-              role: cleanUser.toLowerCase() === 'admin' ? 'admin' : 'member',
-              created_at: new Date().toISOString()
-            };
-            localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(sessionUser));
-            setUser(sessionUser);
-            return { success: true, message: 'Log masuk SakuTrack berjaya!' };
-          } else if (result && result.status === 'error') {
-            return { success: false, message: result.message || 'Nama pengguna atau kata laluan salah!' };
-          }
-        } catch (gasErr) {
-          console.warn('Ralat sambungan terus SakuTrack:', gasErr);
-        }
-      }
+      // 1. Pengesahan Utama melalui Pelayan Backend API (Hashed & Dilindungi)
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: cleanUser,
+          password: cleanPass,
+          webAppUrl: gasUrl,
+        }),
+      });
 
-      // 2. Akses Pentadbir Utama (Admin)
-      if (cleanUser.toLowerCase() === 'admin' && (cleanPass === 'admin123' || cleanPass === '123456')) {
-        const defaultAdmin: User = {
-          id: 'usr_admin',
-          username: 'admin',
-          name: 'Pentadbir (Admin)',
-          role: 'admin',
-          created_at: new Date().toISOString()
+      const data = await res.json();
+
+      if (res.ok && data && data.status === 'success') {
+        const authenticatedUser: User = {
+          id: data.user?.id || `usr_${cleanUser}`,
+          username: data.user?.username || cleanUser,
+          name: data.user?.full_name || data.user?.name || cleanUser,
+          full_name: data.user?.full_name || data.user?.name || cleanUser,
+          email: data.user?.email || `${cleanUser}@mywang.app`,
+          role: data.user?.role || (cleanUser.toLowerCase() === 'admin' ? 'admin' : 'member'),
+          currency: data.user?.currency || 'MYR',
+          created_at: data.user?.created_at || new Date().toISOString(),
         };
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(defaultAdmin));
-        setUser(defaultAdmin);
+
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
+        setUser(authenticatedUser);
         return { success: true, message: 'Log masuk berjaya.' };
+      } else {
+        return { 
+          success: false, 
+          message: data.message || 'Nama pengguna atau kata laluan tidak sah.' 
+        };
       }
-
-      // 3. Pengesahan Pengguna Umum
-      const sessionUser: User = {
-        id: 'usr_' + Date.now(),
-        username: cleanUser,
-        name: cleanUser,
-        role: 'member',
-        created_at: new Date().toISOString()
-      };
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(sessionUser));
-      setUser(sessionUser);
-      return { success: true, message: 'Log masuk berjaya.' };
-
     } catch (e: any) {
-      return { success: false, message: e.message || 'Ralat log masuk' };
+      console.error('Login error:', e);
+      return { success: false, message: 'Ralat sambungan pelayan semasa log masuk.' };
     } finally {
       setIsLoading(false);
     }
@@ -122,39 +100,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanUser = u.trim();
     const cleanPass = p.trim();
 
+    if (!cleanUser || !cleanPass) {
+      setIsLoading(false);
+      return { success: false, message: 'Sila lengkapkan nama pengguna dan kata laluan.' };
+    }
+
     try {
-      let gasUrl = '';
-      try {
-        const rawSettings = localStorage.getItem(SETTINGS_KEY);
-        if (rawSettings) {
-          const parsed = JSON.parse(rawSettings);
-          gasUrl = parsed.gas_web_app_url || parsed.google_sheets_url || parsed.sakutrack_sheets_url || '';
-        }
-      } catch (err) {}
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: cleanUser,
+          password: cleanPass,
+          name: name.trim() || cleanUser,
+        }),
+      });
 
-      if (gasUrl) {
-        try {
-          const response = await fetch(gasUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'register',
-              username: cleanUser,
-              password: cleanPass
-            })
-          });
-          const result = await response.json();
-          if (result && result.status === 'success') {
-            return { success: true, message: result.message || 'Pendaftaran berjaya! Sila log masuk.' };
-          } else if (result && result.status === 'error') {
-            return { success: false, message: result.message || 'Nama pengguna ini sudah wujud!' };
-          }
-        } catch (gasErr) {}
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        return { success: true, message: data.message || 'Pendaftaran berjaya! Sila log masuk.' };
+      } else {
+        return { success: false, message: data.message || 'Gagal mendaftar akaun.' };
       }
-
-      return { success: true, message: 'Akaun dicipta. Sila log masuk.' };
     } catch (e: any) {
-      return { success: false, message: e.message || 'Ralat pendaftaran' };
+      return { success: false, message: e.message || 'Ralat sambungan pendaftaran.' };
     } finally {
       setIsLoading(false);
     }
