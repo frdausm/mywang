@@ -63,3 +63,28 @@ export async function loginUser(
     message: 'Nama pengguna atau kata laluan tidak sah.'
   };
 }
+export const StorageService = {
+  getTransactions: getStoredTransactions,
+  saveTransactions: saveStoredTransactions,
+  addTransaction: addAndSyncTransaction,
+  getAccounts: getStoredAccounts,
+  saveAccounts: saveStoredAccounts,
+  getBudgets: getStoredBudgets,
+  saveBudgets: saveStoredBudgets,
+  getGoals: getStoredGoals,
+  saveGoals: saveStoredGoals,
+  getDebts: getStoredDebts,
+  saveDebts: saveStoredDebts,
+  getSettings: getStoredSettings,
+  saveSettings: saveStoredSettings,
+  getCurrentUser: getStoredCurrentUser,
+  login: loginUser,
+  register: registerUser,
+  logout: logoutUser,
+  syncToGoogleSheets,
+  fetchFromGoogleSheets,
+  testGasConnection,
+  getAnalyticsSummary
+};
+
+export default StorageService;
