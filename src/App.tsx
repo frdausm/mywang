@@ -123,6 +123,12 @@ function DashboardApp() {
         if (backendData.logs && Array.isArray(backendData.logs)) {
           setLogs(backendData.logs);
         }
+        if (backendData.incomeTypes && Array.isArray(backendData.incomeTypes)) {
+          setIncomeCategories(backendData.incomeTypes);
+        }
+        if (backendData.expenseTypes && Array.isArray(backendData.expenseTypes)) {
+          setExpenseCategories(backendData.expenseTypes);
+        }
       }
 
       // 2. Google Sheets sync if URL configured
