@@ -700,7 +700,30 @@ export class StorageService {
     }
 
     try {
-      // 1. Direct client-side fetch (100% works on Vercel, Localhost, Mobile, and Web Apps)
+      // Helper 1: Serverless Proxy Fetch (Bypasses all CORS on Vercel & Node.js backend)
+      const fetchViaProxy = async (act: string, bodyObj: any = {}) => {
+        try {
+          const res = await fetch('/api/gas-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              webAppUrl: gasUrl,
+              action: act,
+              username: activeUsername,
+              data: bodyObj,
+            }),
+          });
+          if (res.ok) {
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              return await res.json();
+            }
+          }
+        } catch {}
+        return null;
+      };
+
+      // Helper 2: Direct client-side fetch fallback
       const fetchDirect = async (act: string, bodyObj: any = {}) => {
         const postData = {
           action: act,
@@ -721,20 +744,29 @@ export class StorageService {
         }
       };
 
+      // Smart executor: Try proxy first (no CORS issues), fallback to direct
+      const executeGasCall = async (act: string, bodyObj: any = {}) => {
+        const proxyRes = await fetchViaProxy(act, bodyObj);
+        if (proxyRes && (proxyRes.status === 'success' || proxyRes.data || proxyRes.transactions || proxyRes.accounts)) {
+          return proxyRes;
+        }
+        return await fetchDirect(act, bodyObj);
+      };
+
       // If testConnection or ping
       if (action === 'testConnection' || action === 'ping') {
         let testRes: any = null;
         try {
-          testRes = await fetchDirect('ping', {});
+          testRes = await executeGasCall('ping', {});
         } catch {}
         if (!testRes || testRes.status === 'error') {
           try {
-            testRes = await fetchDirect('get_transactions', { username: activeUsername });
+            testRes = await executeGasCall('get_transactions', { username: activeUsername });
           } catch {}
         }
         if (!testRes || testRes.status === 'error') {
           try {
-            testRes = await fetchDirect('getDashboard', { token: activeUsername });
+            testRes = await executeGasCall('getDashboard', { token: activeUsername });
           } catch {}
         }
         if (testRes && (testRes.status === 'success' || testRes.transactions || testRes.data)) {
@@ -743,7 +775,7 @@ export class StorageService {
           this.saveGoogleSheetsConfig(config);
           return { success: true, message: 'Sambungan ke Google Apps Script & Sheets berjaya!' };
         }
-        return { success: false, message: testRes?.message || 'Gagal menyambung ke Google Apps Script URL. Sila pastikan Web App dideploy dengan Access: Anyone.' };
+        return { success: false, message: testRes?.message || 'Gagal menyambung ke Google Apps Script URL. Sila pastikan Web App dideploy dengan Access: Anyone & Execute as: Me.' };
       }
 
       // If initial fetch / getInitialData / syncDashboard
@@ -753,15 +785,18 @@ export class StorageService {
 
         // 1. Fetch transactions (support SakuTrack and MyWang endpoints)
         try {
-          const resTx = await fetchDirect('get_transactions', { username: activeUsername });
+          const resTx = await executeGasCall('get_transactions', { username: activeUsername });
           if (resTx && resTx.status === 'success' && Array.isArray(resTx.transactions)) {
             gasTxs = resTx.transactions;
+          }
+          if (resTx && Array.isArray(resTx.accounts) && resTx.accounts.length > 0) {
+            gasAccs = resTx.accounts;
           }
         } catch {}
 
         if (gasTxs.length === 0) {
           try {
-            const resDash = await fetchDirect('getDashboard', { token: activeUsername });
+            const resDash = await executeGasCall('getDashboard', { token: activeUsername });
             if (resDash && (resDash.status === 'success' || resDash.data)) {
               gasTxs = resDash.data?.recentTransactions || resDash.data?.transactions || (Array.isArray(resDash.data) ? resDash.data : []) || [];
               if (resDash.data?.accounts || resDash.accounts) {
@@ -774,7 +809,7 @@ export class StorageService {
         // 2. Fetch accounts (support SakuTrack 'get_accounts' and MyWang 'getAccounts')
         if (gasAccs.length === 0) {
           try {
-            const resAcc1 = await fetchDirect('get_accounts', { username: activeUsername });
+            const resAcc1 = await executeGasCall('get_accounts', { username: activeUsername });
             if (resAcc1 && resAcc1.status === 'success' && Array.isArray(resAcc1.accounts)) {
               gasAccs = resAcc1.accounts;
             } else if (resAcc1 && Array.isArray(resAcc1.data)) {
@@ -785,7 +820,7 @@ export class StorageService {
 
         if (gasAccs.length === 0) {
           try {
-            const resAcc2 = await fetchDirect('getAccounts', {});
+            const resAcc2 = await executeGasCall('getAccounts', {});
             if (resAcc2 && (resAcc2.status === 'success' || Array.isArray(resAcc2.data))) {
               gasAccs = resAcc2.data || resAcc2.accounts || [];
             }
@@ -832,10 +867,10 @@ export class StorageService {
           receipt: payload.receipt_url || null,
         };
         try {
-          await fetchDirect('add_transaction', sakuPayload);
+          await executeGasCall('add_transaction', sakuPayload);
         } catch {}
         try {
-          await fetchDirect('addTransaction', payload);
+          await executeGasCall('addTransaction', payload);
         } catch {}
         return { success: true, message: 'Transaksi direkod ke Google Sheets.' };
       }
@@ -850,10 +885,10 @@ export class StorageService {
           notes: payload.notes || payload.Notes,
         };
         try {
-          await fetchDirect('edit_account', sakuAccPayload);
+          await executeGasCall('edit_account', sakuAccPayload);
         } catch {}
         try {
-          await fetchDirect('saveAccount', payload);
+          await executeGasCall('saveAccount', payload);
         } catch {}
         return { success: true, message: 'Akaun dikemaskini ke Google Sheets.' };
       }
@@ -862,19 +897,20 @@ export class StorageService {
       if (action === 'deleteTransaction' || action === 'delete_transaction') {
         const txId = payload.id || payload.txId;
         try {
-          await fetchDirect('delete_transaction', { txId });
+          await executeGasCall('delete_transaction', { txId });
         } catch {}
         try {
-          await fetchDirect('deleteTransaction', { id: txId });
+          await executeGasCall('deleteTransaction', { id: txId });
         } catch {}
         return { success: true, message: 'Transaksi dipadam dari Google Sheets.' };
       }
 
       // Generic pass-through
-      await fetchDirect(action, payload);
+      await executeGasCall(action, payload);
       return { success: true, message: 'Diselaraskan ke Google Sheets.' };
     } catch (err: any) {
-      return { success: true, message: 'Disimpan di peranti.' };
+      console.warn('Sync with Google Sheets failed, saved locally:', err);
+      return { success: true, message: 'Disimpan di peranti (Mod Tempatan).' };
     }
   }
 
