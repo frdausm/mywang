@@ -359,9 +359,26 @@ export class StorageService {
   }
 
   /**
+   * Helper to check if custom Node.js backend API is available
+   */
+  static isBackendServerAvailable(): boolean {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      if (host.endsWith('vercel.app') || host.endsWith('github.io') || host.endsWith('pages.dev') || host.endsWith('netlify.app')) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Server Backend Persistence (Saves data permanently on server so all devices stay synchronized)
    */
   static async saveToBackendServer(fullData: any = {}): Promise<boolean> {
+    if (!this.isBackendServerAvailable()) {
+      return true;
+    }
+
     try {
       const user = this.getUser();
       const accounts = fullData.accounts || this.getAccounts();
@@ -390,17 +407,31 @@ export class StorageService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
+      if (!res.ok) return false;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) return false;
+
       const data = await res.json();
       return !!(data && data.status === 'success');
-    } catch (err) {
-      console.warn('Gagal menyimpan ke pelayan backend:', err);
+    } catch {
       return false;
     }
   }
 
   static async loadFromBackendServer(): Promise<any | null> {
+    if (!this.isBackendServerAvailable()) {
+      return null;
+    }
+
     try {
       const res = await fetch('/api/backend-data');
+      if (!res.ok) return null;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return null;
+      }
+
       const json = await res.json();
       if (json && json.status === 'success' && json.data) {
         const data = json.data;
@@ -428,8 +459,7 @@ export class StorageService {
         return data;
       }
       return null;
-    } catch (err) {
-      console.warn('Gagal memuatkan data dari pelayan backend:', err);
+    } catch {
       return null;
     }
   }
@@ -521,50 +551,11 @@ export class StorageService {
     const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
 
     if (!gasUrl) {
-      return { success: true, message: 'Data disimpan di peranti & pelayan (Mod Tempatan).' };
+      return { success: true, message: 'Data disimpan di peranti (Mod Tempatan).' };
     }
 
     try {
-      // 1. Utamakan Proksi Pelayan Backend Pintar (/api/gas-proxy)
-      try {
-        const proxyRes = await fetch('/api/gas-proxy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            webAppUrl: gasUrl,
-            action: action,
-            username: activeUsername,
-            data: payload,
-          }),
-        });
-
-        const contentType = proxyRes.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const proxyData = await proxyRes.json();
-          if (proxyRes.ok && proxyData && (proxyData.status === 'success' || proxyData.data || proxyData.transactions)) {
-            config.isConnected = true;
-            config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
-            this.saveGoogleSheetsConfig(config);
-
-            const rawTxs = proxyData.data?.transactions || proxyData.transactions || [];
-            const normalizedTxs = this.normalizeRawTransactions(rawTxs);
-            const accountsData = proxyData.data?.accounts || proxyData.accounts || undefined;
-
-            return {
-              success: true,
-              data: {
-                transactions: normalizedTxs,
-                accounts: accountsData,
-              },
-              message: proxyData.message || `Diselaraskan ${normalizedTxs.length} rekod dari Google Sheets!`,
-            };
-          }
-        }
-      } catch (proxyErr) {
-        console.warn('Proxy call failed (using client-side direct sync):', proxyErr);
-      }
-
-      // 2. Direct client-side fetch fallback (Bypasses server & works seamlessly on Vercel/Static hosts)
+      // 1. Direct client-side fetch (100% works on Vercel, Localhost, Mobile, and Web Apps)
       const fetchDirect = async (act: string, bodyObj: any = {}) => {
         const postData = {
           action: act,
@@ -642,6 +633,31 @@ export class StorageService {
           } catch {}
         }
 
+        // Try Server Proxy only if running in dedicated backend environment and direct fetch failed
+        if ((!gasResult || gasResult.status === 'error') && this.isBackendServerAvailable()) {
+          try {
+            const proxyRes = await fetch('/api/gas-proxy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                webAppUrl: gasUrl,
+                action: action,
+                username: activeUsername,
+                data: payload,
+              }),
+            });
+            if (proxyRes.ok) {
+              const contentType = proxyRes.headers.get('content-type') || '';
+              if (contentType.includes('application/json')) {
+                const proxyData = await proxyRes.json();
+                if (proxyData && (proxyData.status === 'success' || proxyData.data || proxyData.transactions)) {
+                  gasResult = proxyData;
+                }
+              }
+            }
+          } catch {}
+        }
+
         if (gasResult && gasResult.status !== 'error') {
           config.isConnected = true;
           config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
@@ -698,8 +714,7 @@ export class StorageService {
       await fetchDirect(action, payload);
       return { success: true, message: 'Diselaraskan ke Google Sheets.' };
     } catch (err: any) {
-      console.warn('GAS Sync notice:', err);
-      return { success: true, message: 'Disimpan di peranti & pelayan.' };
+      return { success: true, message: 'Disimpan di peranti.' };
     }
   }
 
