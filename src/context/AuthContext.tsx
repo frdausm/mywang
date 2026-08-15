@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
+import { StorageService } from '../services/storage';
 
 interface AuthContextType {
   user: User | null;
@@ -53,47 +54,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err) {}
 
-      // 1. Cuba Pengesahan melalui Pelayan Backend API (/api/auth/login)
+      // 1. Cuba Pengesahan melalui Pelayan Backend API (/api/auth/login) jika pelayan aktif
       let backendAuthSuccess = false;
       let authenticatedUser: User | null = null;
 
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: cleanUser,
-            password: cleanPass,
-            webAppUrl: gasUrl,
-          }),
-        });
+      if (StorageService.isBackendServerAvailable()) {
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: cleanUser,
+              password: cleanPass,
+              webAppUrl: gasUrl,
+            }),
+          });
 
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const data = await res.json();
-          if (res.ok && data && data.status === 'success') {
-            backendAuthSuccess = true;
-            authenticatedUser = {
-              id: data.user?.id || `usr_${cleanUser}`,
-              username: data.user?.username || cleanUser,
-              name: data.user?.full_name || data.user?.name || cleanUser,
-              full_name: data.user?.full_name || data.user?.name || cleanUser,
-              email: data.user?.email || `${cleanUser}@mywang.app`,
-              role: data.user?.role || (cleanUser === 'admin' ? 'admin' : 'member'),
-              currency: data.user?.currency || 'MYR',
-              created_at: data.user?.created_at || new Date().toISOString(),
-            };
-          } else if (res.status === 401 || (data && data.status === 'error')) {
-            // Strictly rejected by backend
-            setIsLoading(false);
-            return {
-              success: false,
-              message: data.message || 'Nama pengguna atau kata laluan tidak sah.',
-            };
+          const contentType = res.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const data = await res.json();
+            if (res.ok && data && data.status === 'success') {
+              backendAuthSuccess = true;
+              authenticatedUser = {
+                id: data.user?.id || `usr_${cleanUser}`,
+                username: data.user?.username || cleanUser,
+                name: data.user?.full_name || data.user?.name || cleanUser,
+                full_name: data.user?.full_name || data.user?.name || cleanUser,
+                email: data.user?.email || `${cleanUser}@mywang.app`,
+                role: data.user?.role || (cleanUser === 'admin' ? 'admin' : 'member'),
+                currency: data.user?.currency || 'MYR',
+                created_at: data.user?.created_at || new Date().toISOString(),
+              };
+            } else if (res.status === 401 || (data && data.status === 'error')) {
+              // Strictly rejected by backend
+              setIsLoading(false);
+              return {
+                success: false,
+                message: data.message || 'Nama pengguna atau kata laluan tidak sah.',
+              };
+            }
           }
+        } catch (backendErr) {
+          // Backend API login unavailable
         }
-      } catch (backendErr) {
-        console.warn('Backend API login unavailable (e.g. static hosting), using secure direct check:', backendErr);
       }
 
       if (backendAuthSuccess && authenticatedUser) {
