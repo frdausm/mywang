@@ -1,0 +1,6 @@
+{
+  "name": "MyWang - One Dashboard. Every Ringgit.",
+  "description": "Aplikasi pengurusan kewangan peribadi komprehensif untuk menjejaki semua baki akaun bank, e-wallet, credit card, paylater, pengimbasan resit pintar AI & integrasi Google Sheets.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
