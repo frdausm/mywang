@@ -12,51 +12,35 @@ const STORAGE_KEYS = {
   USER: 'mywang_user',
   GAS_CONFIG: 'mywang_gas_config',
   DARK_MODE: 'mywang_dark_mode',
-  ZEROED_FLAG: 'mywang_amounts_zeroed_v5',
-  PENDING_QUEUE: 'mywang_pending_sync_queue'
+  ZEROED_FLAG: 'mywang_amounts_zeroed_v5'
 };
 
 export class StorageService {
   /**
-   * Get Accounts - merges initial accounts (AEON Bank, GXBank, Cash, SSP, MIGA, ASNB)
+   * Dapatkan Senarai Akaun
    */
   static getAccounts(): Account[] {
-    const isZeroed = localStorage.getItem(STORAGE_KEYS.ZEROED_FLAG);
     const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
-    
-    if (!isZeroed) {
-      this.saveAccounts(INITIAL_ACCOUNTS);
-      this.saveTransactions([]); // clean transactions
-      localStorage.setItem(STORAGE_KEYS.ZEROED_FLAG, 'true');
-      return INITIAL_ACCOUNTS;
-    }
-
     if (!raw) {
       this.saveAccounts(INITIAL_ACCOUNTS);
       return INITIAL_ACCOUNTS;
     }
     try {
       const parsed: Account[] = JSON.parse(raw);
-      // Merge any new default accounts that might not be in user storage
-      const existingIds = new Set(parsed.map(a => a.id));
-      const missing = INITIAL_ACCOUNTS.filter(a => !existingIds.has(a.id));
-      if (missing.length > 0) {
-        const merged = [...parsed, ...missing];
-        this.saveAccounts(merged);
-        return merged;
-      }
-      return parsed;
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_ACCOUNTS;
     } catch {
       return INITIAL_ACCOUNTS;
     }
   }
 
   static saveAccounts(accounts: Account[]) {
-    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+    try {
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+    } catch (e) {}
   }
 
   /**
-   * Get Loans & Financing (Secret Vault)
+   * Dapatkan Pinjaman & Pembiayaan
    */
   static getLoans(): LoanFinancing[] {
     const raw = localStorage.getItem(STORAGE_KEYS.LOANS);
@@ -65,32 +49,21 @@ export class StorageService {
       return INITIAL_LOANS;
     }
     try {
-      const parsed: LoanFinancing[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const migrated = parsed.map(l => {
-          if (l.id === 'loan_bsn_personal' && (!l.total_paid || l.total_paid === 0)) {
-            return {
-              ...l,
-              total_paid: 11655.00,
-              notes: l.notes || 'Pinjaman Peribadi BSN (Ansuran bulanan RM315.00, sudah bayar RM11,655.00, baki 83 bulan, kadar 4.75%)'
-            };
-          }
-          return l;
-        });
-        return migrated;
-      }
-      return INITIAL_LOANS;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : INITIAL_LOANS;
     } catch {
       return INITIAL_LOANS;
     }
   }
 
   static saveLoans(loans: LoanFinancing[]) {
-    localStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(loans));
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(loans));
+    } catch (e) {}
   }
 
   /**
-   * Secret Vault Passcode (Default: "7445" from Proton Saga plate or "1234")
+   * Kod Rahsia Peti Kebal
    */
   static getSecretPasscode(): string {
     return localStorage.getItem(STORAGE_KEYS.SECRET_PASSCODE) || '7445';
@@ -101,27 +74,27 @@ export class StorageService {
   }
 
   /**
-   * Get Transactions - empty by default (no dummy data)
+   * Dapatkan Transaksi
    */
   static getTransactions(): Transaction[] {
     const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-    if (!raw) {
-      this.saveTransactions([]);
-      return [];
-    }
+    if (!raw) return [];
     try {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
   }
 
   static saveTransactions(transactions: Transaction[]) {
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
+    try {
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
+    } catch (e) {}
   }
 
   /**
-   * Quick utility to clear all amounts to RM 0.00 & wipe transactions
+   * Padam & Kosongkan Semua Baki
    */
   static resetAllAmountsToZero(): { accounts: Account[]; transactions: Transaction[] } {
     const current = this.getAccounts();
@@ -129,12 +102,12 @@ export class StorageService {
     this.saveAccounts(zeroed);
     this.saveTransactions([]);
     localStorage.setItem(STORAGE_KEYS.ZEROED_FLAG, 'true');
-    this.addLog('RESET_AMOUNTS', 'Semua baki akaun dikosongkan (RM 0.00) dan transaksi dummy dipadamkan.');
+    this.addLog('RESET_AMOUNTS', 'Semua baki akaun dikosongkan (RM 0.00).');
     return { accounts: zeroed, transactions: [] };
   }
 
   /**
-   * Get Income & Expense Categories
+   * Kategori Duit Masuk & Keluar
    */
   static getCategories(): { incomeTypes: CategoryItem[]; expenseTypes: CategoryItem[] } {
     const rawInc = localStorage.getItem(STORAGE_KEYS.INCOME_TYPES);
@@ -164,16 +137,14 @@ export class StorageService {
   }
 
   /**
-   * Get Audit Logs
+   * Log Aktiviti
    */
   static getLogs(): AuditLog[] {
     const raw = localStorage.getItem(STORAGE_KEYS.LOGS);
-    if (!raw) {
-      this.saveLogs(INITIAL_LOGS);
-      return INITIAL_LOGS;
-    }
+    if (!raw) return INITIAL_LOGS;
     try {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : INITIAL_LOGS;
     } catch {
       return INITIAL_LOGS;
     }
@@ -197,6 +168,9 @@ export class StorageService {
     return updated;
   }
 
+  /**
+   * Profil Pengguna
+   */
   static getUser(): User | null {
     const raw = localStorage.getItem(STORAGE_KEYS.USER);
     if (!raw) return null;
@@ -216,7 +190,7 @@ export class StorageService {
   }
 
   /**
-   * Google Sheets Config
+   * Konfigurasi Google Sheets
    */
   static getGoogleSheetsConfig(): GoogleSheetsConfig {
     const raw = localStorage.getItem(STORAGE_KEYS.GAS_CONFIG);
@@ -226,9 +200,7 @@ export class StorageService {
     }
     try {
       const parsed = JSON.parse(raw);
-      if (!parsed.webAppUrl) {
-        parsed.webAppUrl = INITIAL_GAS_CONFIG.webAppUrl;
-      }
+      if (!parsed.webAppUrl) parsed.webAppUrl = INITIAL_GAS_CONFIG.webAppUrl;
       return parsed;
     } catch {
       return INITIAL_GAS_CONFIG;
@@ -240,7 +212,7 @@ export class StorageService {
   }
 
   /**
-   * Compute Summary Stats
+   * Kira Statistik Ringkasan Kewangan
    */
   static computeSummaryStats(accounts: Account[], transactions: Transaction[]): SummaryStats {
     let totalMoney = 0;
@@ -250,18 +222,12 @@ export class StorageService {
 
     accounts.forEach((acc) => {
       const bal = Number(acc.balance) || 0;
-      if (bal > 0) {
-        totalMoney += bal;
-      }
+      if (bal > 0) totalMoney += bal;
       if (acc.type === 'bank' || acc.type === 'ewallet' || acc.type === 'cash') {
-        if (bal > 0) {
-          cashAvailable += bal;
-        }
+        if (bal > 0) cashAvailable += bal;
       }
       if (acc.type === 'credit_card' || acc.type === 'paylater') {
-        if (bal < 0) {
-          creditUsed += Math.abs(bal);
-        }
+        if (bal < 0) creditUsed += Math.abs(bal);
       }
       netWorth += bal;
     });
@@ -274,11 +240,8 @@ export class StorageService {
 
     transactions.forEach((tx) => {
       if (tx.date && tx.date.startsWith(currentMonthPrefix)) {
-        if (tx.type === 'income') {
-          incomeThisMonth += Number(tx.amount) || 0;
-        } else if (tx.type === 'expense') {
-          expenseThisMonth += Number(tx.amount) || 0;
-        }
+        if (tx.type === 'income') incomeThisMonth += Number(tx.amount) || 0;
+        else if (tx.type === 'expense') expenseThisMonth += Number(tx.amount) || 0;
       }
     });
 
@@ -293,7 +256,7 @@ export class StorageService {
   }
 
   /**
-   * Deduplication & Smart Merge for Transactions (Mencegah Rekod Bertindan)
+   * Gabung & Cegah Duplikasi Transaksi
    */
   static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
     const map = new Map<string, Transaction>();
@@ -307,42 +270,35 @@ export class StorageService {
       return `${date}|${type}|${amt}|${cat}|${note}`;
     };
 
-    // 1. Put local items in map first
     localList.forEach((tx) => {
       if (tx.id) map.set(tx.id, tx);
       map.set(getSignature(tx), tx);
     });
 
-    // 2. Merge incoming items
     incomingList.forEach((tx) => {
       const sig = getSignature(tx);
       if (tx.id && map.has(tx.id)) {
-        // Update existing record
         const existing = map.get(tx.id)!;
         const merged = { ...existing, ...tx };
         map.set(tx.id, merged);
         map.set(sig, merged);
       } else if (map.has(sig)) {
-        // Matches by signature, don't duplicate
         const existing = map.get(sig)!;
         const merged = { ...existing, ...tx, id: existing.id || tx.id };
         if (merged.id) map.set(merged.id, merged);
         map.set(sig, merged);
       } else {
-        // Brand new transaction
         if (tx.id) map.set(tx.id, tx);
         map.set(sig, tx);
       }
     });
 
-    // Extract unique transactions
     const uniqueMap = new Map<string, Transaction>();
     Array.from(map.values()).forEach((tx) => {
-      const finalId = tx.id || `tx_${Math.random()}`;
+      const finalId = tx.id || `tx_${Math.random().toString(36).substring(2, 8)}`;
       uniqueMap.set(finalId, tx);
     });
 
-    // Sort by date descending
     return Array.from(uniqueMap.values()).sort((a, b) => {
       const dateA = new Date(a.date || 0).getTime();
       const dateB = new Date(b.date || 0).getTime();
@@ -351,120 +307,23 @@ export class StorageService {
   }
 
   /**
-   * Pending Sync Queue (Offline / Background queue to prevent hangs)
-   */
-  static getPendingQueue(): Array<{ action: string; payload: any; timestamp: number }> {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.PENDING_QUEUE);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  static savePendingQueue(queue: Array<{ action: string; payload: any; timestamp: number }>) {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PENDING_QUEUE, JSON.stringify(queue.slice(-100)));
-    } catch {}
-  }
-
-  static enqueueSync(action: string, payload: any) {
-    const queue = this.getPendingQueue();
-    queue.push({ action, payload, timestamp: Date.now() });
-    this.savePendingQueue(queue);
-    // Non-blocking trigger to flush in background
-    setTimeout(() => {
-      this.flushPendingQueue().catch(() => {});
-    }, 100);
-  }
-
-  static async flushPendingQueue(): Promise<void> {
-    const queue = this.getPendingQueue();
-    if (queue.length === 0) return;
-
-    const remaining: typeof queue = [];
-    for (const item of queue) {
-      try {
-        const res = await this.syncWithGAS(item.action, item.payload);
-        if (!res.success && res.message?.includes('network')) {
-          // If true network fail, keep item for next attempt
-          remaining.push(item);
-        }
-      } catch {
-        remaining.push(item);
-      }
-    }
-    this.savePendingQueue(remaining);
-  }
-
-  /**
-   * Server Backend Persistence (/api/backend-data)
-   */
-  static async saveToBackendServer(fullData: {
-    accounts?: Account[];
-    transactions?: Transaction[];
-    loans?: LoanFinancing[];
-    logs?: AuditLog[];
-    categories?: { incomeTypes: CategoryItem[]; expenseTypes: CategoryItem[] };
-  }): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch('/api/backend-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullData),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      const data = await res.json();
-      return data?.status === 'success';
-    } catch {
-      return false;
-    }
-  }
-
-  static async loadFromBackendServer(): Promise<any | null> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch('/api/backend-data', {
-        method: 'GET',
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      const data = await res.json();
-      if (data?.status === 'success' && data.data) {
-        return data.data;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Sync with Google Apps Script Web App (With AbortController timeout to prevent hang)
-   */
-  /**
-   * Sync with Google Apps Script Web App (Direct & Kalis Vercel 405)
+   * Penyegerakan Terus Google Apps Script (Direct & Kalis 405 Vercel)
    */
   static async syncWithGAS(action: string, payload: any = {}): Promise<{ success: boolean; data?: any; message?: string }> {
     const config: any = this.getGoogleSheetsConfig();
     const user = this.getUser();
     const activeUsername = user?.username || 'firdaus';
-
     const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
 
     if (!gasUrl) {
-      return { success: false, message: 'URL Google Apps Script belum ditetapkan.' };
+      return { success: true, message: 'Disimpan di peranti (Mod Tempatan)' };
     }
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      // Direct fetch ke Google Apps Script tanpa melalui /api/gas-proxy
+      // Direct POST ke Google Apps Script tanpa melalui endpoint pelayan Vercel
       const response = await fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -483,7 +342,7 @@ export class StorageService {
         const result = await response.json();
         if (result && result.status === 'success') {
           config.isConnected = true;
-          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
           this.saveGoogleSheetsConfig(config);
           return { 
             success: true, 
@@ -491,26 +350,23 @@ export class StorageService {
             message: result.message || 'Penyegerakan Google Sheets berjaya!' 
           };
         } else if (result && result.status === 'error') {
-          return { success: false, message: result.message || 'Ralat dari Google Apps Script.' };
+          return { success: false, message: result.message || 'Ralat daripada Google Apps Script.' };
         }
       }
 
       return { success: true, message: 'Data telah diselaraskan ke Google Sheets.' };
     } catch (err: any) {
-      return { success: true, message: 'Disimpan di peranti (Luar Talian)' };
+      // Jika mod luar talian / timeout, kekalkan data selamat di peranti
+      return { success: true, message: 'Disimpan di peranti.' };
     }
   }
 
-  /**
-   * Reset to Default Demo Data
-   */
   static resetToDefault() {
     localStorage.removeItem(STORAGE_KEYS.ACCOUNTS);
     localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
     localStorage.removeItem(STORAGE_KEYS.INCOME_TYPES);
     localStorage.removeItem(STORAGE_KEYS.EXPENSE_TYPES);
     localStorage.removeItem(STORAGE_KEYS.LOGS);
-    localStorage.removeItem(STORAGE_KEYS.PENDING_QUEUE);
     return {
       accounts: INITIAL_ACCOUNTS,
       transactions: INITIAL_TRANSACTIONS,
@@ -521,7 +377,7 @@ export class StorageService {
   }
 }
 
-// Standalone export helpers for compatibility across views
+// Standalone Helper Exports
 export const getStoredTransactions = () => StorageService.getTransactions();
 export const saveStoredTransactions = (txs: Transaction[]) => StorageService.saveTransactions(txs);
 export const getStoredAccounts = () => StorageService.getAccounts();
