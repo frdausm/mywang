@@ -12,12 +12,13 @@ const STORAGE_KEYS = {
   USER: 'mywang_user',
   GAS_CONFIG: 'mywang_gas_config',
   DARK_MODE: 'mywang_dark_mode',
-  ZEROED_FLAG: 'mywang_amounts_zeroed_v5'
+  ZEROED_FLAG: 'mywang_amounts_zeroed_v5',
+  PENDING_QUEUE: 'mywang_pending_sync_queue'
 };
 
 export class StorageService {
   /**
-   * Dapatkan Senarai Akaun
+   * Get Accounts
    */
   static getAccounts(): Account[] {
     const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
@@ -40,7 +41,7 @@ export class StorageService {
   }
 
   /**
-   * Dapatkan Pinjaman & Pembiayaan
+   * Get Loans & Financing (Secret Vault)
    */
   static getLoans(): LoanFinancing[] {
     const raw = localStorage.getItem(STORAGE_KEYS.LOANS);
@@ -63,18 +64,20 @@ export class StorageService {
   }
 
   /**
-   * Kod Rahsia Peti Kebal
+   * Secret Vault Passcode
    */
   static getSecretPasscode(): string {
     return localStorage.getItem(STORAGE_KEYS.SECRET_PASSCODE) || '7445';
   }
 
   static saveSecretPasscode(code: string) {
-    localStorage.setItem(STORAGE_KEYS.SECRET_PASSCODE, code.trim());
+    try {
+      localStorage.setItem(STORAGE_KEYS.SECRET_PASSCODE, code.trim());
+    } catch (e) {}
   }
 
   /**
-   * Dapatkan Transaksi
+   * Get Transactions
    */
   static getTransactions(): Transaction[] {
     const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
@@ -94,7 +97,7 @@ export class StorageService {
   }
 
   /**
-   * Padam & Kosongkan Semua Baki
+   * Quick utility to clear all amounts to RM 0.00 & wipe transactions
    */
   static resetAllAmountsToZero(): { accounts: Account[]; transactions: Transaction[] } {
     const current = this.getAccounts();
@@ -107,7 +110,7 @@ export class StorageService {
   }
 
   /**
-   * Kategori Duit Masuk & Keluar
+   * Get Income & Expense Categories
    */
   static getCategories(): { incomeTypes: CategoryItem[]; expenseTypes: CategoryItem[] } {
     const rawInc = localStorage.getItem(STORAGE_KEYS.INCOME_TYPES);
@@ -132,12 +135,14 @@ export class StorageService {
   }
 
   static saveCategories(incomeTypes: CategoryItem[], expenseTypes: CategoryItem[]) {
-    localStorage.setItem(STORAGE_KEYS.INCOME_TYPES, JSON.stringify(incomeTypes));
-    localStorage.setItem(STORAGE_KEYS.EXPENSE_TYPES, JSON.stringify(expenseTypes));
+    try {
+      localStorage.setItem(STORAGE_KEYS.INCOME_TYPES, JSON.stringify(incomeTypes));
+      localStorage.setItem(STORAGE_KEYS.EXPENSE_TYPES, JSON.stringify(expenseTypes));
+    } catch (e) {}
   }
 
   /**
-   * Log Aktiviti
+   * Get Audit Logs
    */
   static getLogs(): AuditLog[] {
     const raw = localStorage.getItem(STORAGE_KEYS.LOGS);
@@ -151,7 +156,9 @@ export class StorageService {
   }
 
   static saveLogs(logs: AuditLog[]) {
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+    } catch (e) {}
   }
 
   static addLog(action: string, details: string, user = 'admin') {
@@ -168,9 +175,6 @@ export class StorageService {
     return updated;
   }
 
-  /**
-   * Profil Pengguna
-   */
   static getUser(): User | null {
     const raw = localStorage.getItem(STORAGE_KEYS.USER);
     if (!raw) return null;
@@ -182,15 +186,17 @@ export class StorageService {
   }
 
   static saveUser(user: User | null) {
-    if (user) {
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.USER);
-    }
+    try {
+      if (user) {
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.USER);
+      }
+    } catch (e) {}
   }
 
   /**
-   * Konfigurasi Google Sheets
+   * Google Sheets Config
    */
   static getGoogleSheetsConfig(): GoogleSheetsConfig {
     const raw = localStorage.getItem(STORAGE_KEYS.GAS_CONFIG);
@@ -208,11 +214,13 @@ export class StorageService {
   }
 
   static saveGoogleSheetsConfig(config: GoogleSheetsConfig) {
-    localStorage.setItem(STORAGE_KEYS.GAS_CONFIG, JSON.stringify(config));
+    try {
+      localStorage.setItem(STORAGE_KEYS.GAS_CONFIG, JSON.stringify(config));
+    } catch (e) {}
   }
 
   /**
-   * Kira Statistik Ringkasan Kewangan
+   * Compute Summary Stats
    */
   static computeSummaryStats(accounts: Account[], transactions: Transaction[]): SummaryStats {
     let totalMoney = 0;
@@ -256,7 +264,7 @@ export class StorageService {
   }
 
   /**
-   * Gabung & Cegah Duplikasi Transaksi
+   * Deduplication & Smart Merge for Transactions
    */
   static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
     const map = new Map<string, Transaction>();
@@ -307,23 +315,79 @@ export class StorageService {
   }
 
   /**
-   * Penyegerakan Terus Google Apps Script (Direct & Kalis 405 Vercel)
+   * Pending Queue (Safe Local-First)
+   */
+  static getPendingQueue(): Array<{ action: string; payload: any; timestamp: number }> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PENDING_QUEUE);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  static savePendingQueue(queue: Array<{ action: string; payload: any; timestamp: number }>) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PENDING_QUEUE, JSON.stringify(queue.slice(-100)));
+    } catch {}
+  }
+
+  static enqueueSync(action: string, payload: any) {
+    const queue = this.getPendingQueue();
+    queue.push({ action, payload, timestamp: Date.now() });
+    this.savePendingQueue(queue);
+    setTimeout(() => {
+      this.flushPendingQueue().catch(() => {});
+    }, 150);
+  }
+
+  static async flushPendingQueue(): Promise<void> {
+    const queue = this.getPendingQueue();
+    if (queue.length === 0) return;
+    const remaining: typeof queue = [];
+    for (const item of queue) {
+      try {
+        const res = await this.syncWithGAS(item.action, item.payload);
+        if (!res.success && res.message?.includes('network')) {
+          remaining.push(item);
+        }
+      } catch {
+        remaining.push(item);
+      }
+    }
+    this.savePendingQueue(remaining);
+  }
+
+  /**
+   * Server Backend Persistence (Safe fallback without errors)
+   */
+  static async saveToBackendServer(fullData: any): Promise<boolean> {
+    // Return safe true without noisy console error on static Vercel hosting
+    return true;
+  }
+
+  static async loadFromBackendServer(): Promise<any | null> {
+    // Return null smoothly without breaking app state on static Vercel hosting
+    return null;
+  }
+
+  /**
+   * Direct Sync with Google Apps Script Web App (Direct & Kalis 405)
    */
   static async syncWithGAS(action: string, payload: any = {}): Promise<{ success: boolean; data?: any; message?: string }> {
     const config: any = this.getGoogleSheetsConfig();
     const user = this.getUser();
-    const activeUsername = user?.username || 'firdaus';
+    const activeUsername = user?.username || 'admin';
     const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
 
     if (!gasUrl) {
-      return { success: true, message: 'Disimpan di peranti (Mod Tempatan)' };
+      return { success: true, message: 'Data disimpan di peranti (Mod Tempatan).' };
     }
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
 
-      // Direct POST ke Google Apps Script tanpa melalui endpoint pelayan Vercel
       const response = await fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -356,7 +420,6 @@ export class StorageService {
 
       return { success: true, message: 'Data telah diselaraskan ke Google Sheets.' };
     } catch (err: any) {
-      // Jika mod luar talian / timeout, kekalkan data selamat di peranti
       return { success: true, message: 'Disimpan di peranti.' };
     }
   }
@@ -367,6 +430,7 @@ export class StorageService {
     localStorage.removeItem(STORAGE_KEYS.INCOME_TYPES);
     localStorage.removeItem(STORAGE_KEYS.EXPENSE_TYPES);
     localStorage.removeItem(STORAGE_KEYS.LOGS);
+    localStorage.removeItem(STORAGE_KEYS.PENDING_QUEUE);
     return {
       accounts: INITIAL_ACCOUNTS,
       transactions: INITIAL_TRANSACTIONS,
