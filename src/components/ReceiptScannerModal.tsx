@@ -165,6 +165,15 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
         }),
       });
 
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('application/json')) {
+        // Fallback for environments without backend serverless function
+        setMerchant(scanType === 'income' ? 'Sumber Pendapatan' : 'Pembelian / Resit');
+        setNote(scanType === 'income' ? 'Tangkapan penyata/baucar' : 'Tangkapan imej resit fizikal');
+        setScanSource('Mod Tempatan');
+        return;
+      }
+
       const json = await res.json();
       if (json && json.status === 'success' && json.data) {
         const d: ReceiptScanResult = json.data;
