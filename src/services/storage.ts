@@ -359,20 +359,19 @@ export class StorageService {
   }
 
   /**
-   * Server Backend Persistence (Safe fallback without errors)
+   * Server Backend Persistence (Safe fallback without errors on static Vercel)
    */
   static async saveToBackendServer(fullData: any): Promise<boolean> {
-    // Return safe true without noisy console error on static Vercel hosting
     return true;
   }
 
   static async loadFromBackendServer(): Promise<any | null> {
-    // Return null smoothly without breaking app state on static Vercel hosting
     return null;
   }
 
   /**
-   * Direct Sync with Google Apps Script Web App (Direct & Kalis 405)
+   * Universal Sync with Google Apps Script Web App
+   * Menyokong kedua-dua format: SakuTrack backend & MyWang AppsScript backend
    */
   static async syncWithGAS(action: string, payload: any = {}): Promise<{ success: boolean; data?: any; message?: string }> {
     const config: any = this.getGoogleSheetsConfig();
@@ -388,14 +387,24 @@ export class StorageService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 7000);
 
+      // 1. Jika memanggil getInitialData, selaraskan dengan Google Apps Script
+      // Padankan action untuk GAS (getTransactions / getAccounts / getDashboard / syncDashboard)
+      let effectiveAction = action;
+      if (action === 'getInitialData') {
+        effectiveAction = 'getDashboard';
+      }
+
+      const postBody: any = {
+        action: effectiveAction,
+        username: activeUsername,
+        data: payload || {},
+        ...payload
+      };
+
       const response = await fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action,
-          username: activeUsername,
-          ...payload,
-        }),
+        body: JSON.stringify(postBody),
         signal: controller.signal,
       });
 
@@ -404,16 +413,41 @@ export class StorageService {
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
         const result = await response.json();
-        if (result && result.status === 'success') {
+        
+        // Semak jika status berjaya
+        if (result && (result.status === 'success' || result.data || result.transactions || result.accounts)) {
           config.isConnected = true;
           config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
           this.saveGoogleSheetsConfig(config);
+          
           return { 
             success: true, 
-            data: result.data || result.transactions || result.accounts, 
+            data: result.data || { transactions: result.transactions, accounts: result.accounts }, 
             message: result.message || 'Penyegerakan Google Sheets berjaya!' 
           };
         } else if (result && result.status === 'error') {
+          // Jika GAS tidak kenal action getDashboard, cuba fallback ke getTransactions
+          if (effectiveAction === 'getDashboard' || result.message?.includes('Unknown') || result.message?.includes('tidak dikenali')) {
+            const fallbackRes = await fetch(gasUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                action: 'getTransactions',
+                username: activeUsername
+              })
+            });
+            const fallbackJson = await fallbackRes.json();
+            if (fallbackJson && (fallbackJson.status === 'success' || fallbackJson.data)) {
+              config.isConnected = true;
+              config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+              this.saveGoogleSheetsConfig(config);
+              return {
+                success: true,
+                data: { transactions: fallbackJson.data || fallbackJson.transactions || [] },
+                message: 'Penyegerakan Google Sheets berjaya!'
+              };
+            }
+          }
           return { success: false, message: result.message || 'Ralat daripada Google Apps Script.' };
         }
       }
