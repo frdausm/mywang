@@ -111,22 +111,33 @@ function DashboardApp() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // 1. Initial background sync
-    const config = StorageService.getGoogleSheetsConfig();
-    if (config.webAppUrl && config.autoSync) {
-      handleManualSync(false);
-    } else {
-      // Check server backend backup
-      StorageService.loadFromBackendServer().then((backendData) => {
-        if (backendData) {
-          if (backendData.transactions && Array.isArray(backendData.transactions)) {
-            setTransactions((prev) => StorageService.mergeAndDeduplicateTransactions(prev, backendData.transactions));
-          }
+    // 1. Initial multi-device backend restore
+    StorageService.loadFromBackendServer().then((backendData) => {
+      if (backendData) {
+        if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
+          setAccounts(backendData.accounts);
         }
-      }).catch(() => {});
-    }
+        if (backendData.transactions && Array.isArray(backendData.transactions)) {
+          setTransactions((prev) => StorageService.mergeAndDeduplicateTransactions(prev, backendData.transactions));
+        }
+        if (backendData.logs && Array.isArray(backendData.logs)) {
+          setLogs(backendData.logs);
+        }
+      }
 
-    // 2. Periodic real-time sync (every 45 seconds) & window focus sync
+      // 2. Google Sheets sync if URL configured
+      const config = StorageService.getGoogleSheetsConfig();
+      if (config.webAppUrl && config.autoSync) {
+        handleManualSync(false);
+      }
+    }).catch(() => {
+      const config = StorageService.getGoogleSheetsConfig();
+      if (config.webAppUrl && config.autoSync) {
+        handleManualSync(false);
+      }
+    });
+
+    // 3. Periodic real-time sync (every 45 seconds) & window focus sync
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         const curConfig = StorageService.getGoogleSheetsConfig();
