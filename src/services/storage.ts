@@ -359,14 +359,79 @@ export class StorageService {
   }
 
   /**
-   * Server Backend Persistence (Safe fallback without errors on static Vercel)
+   * Server Backend Persistence (Saves data permanently on server so all devices stay synchronized)
    */
-  static async saveToBackendServer(fullData: any): Promise<boolean> {
-    return true;
+  static async saveToBackendServer(fullData: any = {}): Promise<boolean> {
+    try {
+      const user = this.getUser();
+      const accounts = fullData.accounts || this.getAccounts();
+      const transactions = fullData.transactions || this.getTransactions();
+      const loans = fullData.loans || this.getLoans();
+      const categories = this.getCategories();
+      const logs = fullData.logs || this.getLogs();
+      const gasConfig = fullData.gasConfig || this.getGoogleSheetsConfig();
+      const secretPasscode = this.getSecretPasscode();
+
+      const payload = {
+        username: user?.username || 'admin',
+        accounts,
+        transactions,
+        loans,
+        incomeTypes: categories.incomeTypes,
+        expenseTypes: categories.expenseTypes,
+        logs,
+        gasConfig,
+        secretPasscode,
+        saved_at: new Date().toISOString(),
+      };
+
+      const res = await fetch('/api/backend-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      return !!(data && data.status === 'success');
+    } catch (err) {
+      console.warn('Gagal menyimpan ke pelayan backend:', err);
+      return false;
+    }
   }
 
   static async loadFromBackendServer(): Promise<any | null> {
-    return null;
+    try {
+      const res = await fetch('/api/backend-data');
+      const json = await res.json();
+      if (json && json.status === 'success' && json.data) {
+        const data = json.data;
+        if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
+          this.saveAccounts(data.accounts);
+        }
+        if (data.transactions && Array.isArray(data.transactions)) {
+          this.saveTransactions(data.transactions);
+        }
+        if (data.loans && Array.isArray(data.loans)) {
+          this.saveLoans(data.loans);
+        }
+        if (data.incomeTypes && data.expenseTypes) {
+          this.saveCategories(data.incomeTypes, data.expenseTypes);
+        }
+        if (data.gasConfig && data.gasConfig.webAppUrl) {
+          this.saveGoogleSheetsConfig(data.gasConfig);
+        }
+        if (data.secretPasscode) {
+          this.saveSecretPasscode(data.secretPasscode);
+        }
+        if (data.logs && Array.isArray(data.logs)) {
+          this.saveLogs(data.logs);
+        }
+        return data;
+      }
+      return null;
+    } catch (err) {
+      console.warn('Gagal memuatkan data dari pelayan backend:', err);
+      return null;
+    }
   }
 
   /**
@@ -380,15 +445,52 @@ export class StorageService {
     const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
 
     if (!gasUrl) {
-      return { success: true, message: 'Data disimpan di peranti (Mod Tempatan).' };
+      return { success: true, message: 'Data disimpan di peranti & pelayan (Mod Tempatan).' };
     }
 
     try {
+      // 1. Utamakan Proksi Pelayan Backend Pintar
+      try {
+        const proxyRes = await fetch('/api/gas-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webAppUrl: gasUrl,
+            action: action,
+            username: activeUsername,
+            data: payload,
+          }),
+        });
+
+        const proxyData = await proxyRes.json();
+        if (proxyRes.ok && proxyData && (proxyData.status === 'success' || proxyData.data || proxyData.transactions)) {
+          config.isConnected = true;
+          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+          this.saveGoogleSheetsConfig(config);
+
+          const resultData = proxyData.data || {
+            transactions: proxyData.transactions,
+            accounts: proxyData.accounts,
+          };
+
+          return {
+            success: true,
+            data: resultData,
+            message: proxyData.message || 'Penyegerakan Google Sheets berjaya!',
+          };
+        } else if (proxyData && proxyData.status === 'error') {
+          if (!proxyData.message?.includes('tidak dikenali')) {
+            return { success: false, message: proxyData.message };
+          }
+        }
+      } catch (proxyErr) {
+        console.warn('Proxy call failed, trying direct fetch:', proxyErr);
+      }
+
+      // 2. Fallback direct fetch
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 7000);
 
-      // 1. Jika memanggil getInitialData, selaraskan dengan Google Apps Script
-      // Padankan action untuk GAS (getTransactions / getAccounts / getDashboard / syncDashboard)
       let effectiveAction = action;
       if (action === 'getInitialData') {
         effectiveAction = 'getDashboard';
@@ -454,7 +556,7 @@ export class StorageService {
 
       return { success: true, message: 'Data telah diselaraskan ke Google Sheets.' };
     } catch (err: any) {
-      return { success: true, message: 'Disimpan di peranti.' };
+      return { success: true, message: 'Disimpan di peranti & pelayan.' };
     }
   }
 
