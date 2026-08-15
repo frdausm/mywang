@@ -107,11 +107,22 @@ function DashboardApp() {
     return StorageService.computeSummaryStats(accounts, transactions);
   }, [accounts, transactions]);
 
+  // Reload local storage whenever auth state or user changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      const storedAccs = StorageService.getAccounts();
+      const storedTxs = StorageService.getTransactions();
+      const computedAccs = StorageService.computeLiveAccountBalances(storedAccs, storedTxs);
+      setAccounts(computedAccs);
+      setTransactions(storedTxs);
+    }
+  }, [isAuthenticated, user?.username]);
+
   // Initial Sync Check & Real-Time Background Synchronization
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // 1. Initial multi-device backend restore
+    // 1. Initial multi-device backend restore (if backend available)
     StorageService.loadFromBackendServer().then((backendData) => {
       if (backendData) {
         if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
@@ -143,7 +154,7 @@ function DashboardApp() {
       }
     });
 
-    // 3. Periodic real-time sync (every 45 seconds) & window focus sync
+    // 3. Periodic real-time sync (every 30 seconds) & window focus sync
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         const curConfig = StorageService.getGoogleSheetsConfig();
@@ -153,7 +164,7 @@ function DashboardApp() {
         // Flush any pending queue
         StorageService.flushPendingQueue().catch(() => {});
       }
-    }, 45000);
+    }, 30000);
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -175,7 +186,7 @@ function DashboardApp() {
     };
   }, [isAuthenticated]);
 
-  // Sync trigger with Deduplication & Backend Persistence
+  // Sync trigger with Deduplication & Real-Time Balances
   const handleManualSync = async (showToast = true) => {
     if (isSyncing) return;
     setIsSyncing(true);
@@ -193,14 +204,17 @@ function DashboardApp() {
           StorageService.saveTransactions(mergedTransactions);
         }
 
-        if (gasRes.data.accounts && Array.isArray(gasRes.data.accounts) && gasRes.data.accounts.length > 0) {
-          setAccounts(gasRes.data.accounts);
-          StorageService.saveAccounts(gasRes.data.accounts);
-        }
+        let syncedAccounts = gasRes.data.accounts && Array.isArray(gasRes.data.accounts) && gasRes.data.accounts.length > 0
+          ? gasRes.data.accounts
+          : accounts;
 
-        // Persist full bundle to backend server asynchronously
+        syncedAccounts = StorageService.computeLiveAccountBalances(syncedAccounts, mergedTransactions);
+        setAccounts(syncedAccounts);
+        StorageService.saveAccounts(syncedAccounts);
+
+        // Persist full bundle to backend server asynchronously if available
         StorageService.saveToBackendServer({
-          accounts,
+          accounts: syncedAccounts,
           transactions: mergedTransactions,
           loans: StorageService.getLoans(),
           logs,
@@ -218,9 +232,10 @@ function DashboardApp() {
 
         if (showToast) {
           if (gasRes.message?.includes('belum ditetapkan')) {
+            addToast('info', 'Sila masukkan URL Google Apps Script dalam Tetapan.');
             setIsSyncModalOpen(true);
           } else {
-            addToast('info', gasRes.message || 'Data disimpan secara selamat di peranti & pelayan.');
+            addToast('info', gasRes.message || 'Data disimpan secara selamat di peranti.');
           }
         }
       }
