@@ -541,13 +541,158 @@ export class StorageService {
   }
 
   /**
+   * Normalize raw accounts from SakuTrack or MyWang AppsScript
+   */
+  static normalizeRawAccounts(rawList: any[]): Account[] {
+    if (!Array.isArray(rawList) || rawList.length === 0) return [];
+
+    const getMeta = (bank: string, name: string, typeStr: string) => {
+      const combined = `${bank} ${name} ${typeStr}`.toLowerCase();
+      if (combined.includes('maybank') || combined.includes('mae')) {
+        return { bank: 'Maybank', color: 'from-amber-500 to-yellow-600', icon: combined.includes('wallet') ? 'Smartphone' : combined.includes('credit') ? 'CreditCard' : 'Landmark' };
+      }
+      if (combined.includes('cimb')) {
+        return { bank: 'CIMB Bank', color: 'from-red-600 to-rose-800', icon: combined.includes('credit') ? 'CreditCard' : 'Landmark' };
+      }
+      if (combined.includes('rhb')) {
+        return { bank: 'RHB Bank', color: 'from-blue-600 to-cyan-700', icon: combined.includes('credit') ? 'CreditCard' : 'Landmark' };
+      }
+      if (combined.includes('touch') || combined.includes('tng')) {
+        return { bank: "Touch 'n Go", color: 'from-blue-500 to-sky-600', icon: 'Smartphone' };
+      }
+      if (combined.includes('tunai') || combined.includes('cash') || combined.includes('dompet')) {
+        return { bank: 'Tunai (Cash)', color: 'from-emerald-500 to-teal-700', icon: 'Coins' };
+      }
+      if (combined.includes('aeon')) {
+        return { bank: 'AEON Bank', color: 'from-fuchsia-600 to-pink-700', icon: 'Landmark' };
+      }
+      if (combined.includes('gx')) {
+        return { bank: 'GXBank', color: 'from-violet-600 to-purple-800', icon: 'Landmark' };
+      }
+      if (combined.includes('public')) {
+        return { bank: 'Public Bank', color: 'from-red-700 to-amber-700', icon: 'Landmark' };
+      }
+      if (combined.includes('hong leong') || combined.includes('hlb')) {
+        return { bank: 'Hong Leong Bank', color: 'from-red-600 to-rose-700', icon: 'Landmark' };
+      }
+      if (combined.includes('bank islam')) {
+        return { bank: 'Bank Islam', color: 'from-red-700 to-rose-950', icon: 'Landmark' };
+      }
+      if (combined.includes('bsn') || combined.includes('ssp')) {
+        return { bank: 'BSN', color: 'from-teal-600 to-cyan-800', icon: 'PiggyBank' };
+      }
+      if (combined.includes('asnb') || combined.includes('asb')) {
+        return { bank: 'ASNB', color: 'from-blue-700 to-indigo-900', icon: 'TrendingUp' };
+      }
+      if (combined.includes('miga') || combined.includes('emas') || combined.includes('gold')) {
+        return { bank: 'Maybank Islamic (MIGA)', color: 'from-amber-600 to-yellow-700', icon: 'Coins' };
+      }
+      if (combined.includes('atome') || combined.includes('spaylater') || combined.includes('paylater')) {
+        return { bank: 'PayLater', color: 'from-amber-500 to-yellow-700', icon: 'Clock' };
+      }
+      return { bank: bank || 'Akaun Simpanan', color: 'from-slate-600 to-gray-800', icon: 'Wallet' };
+    };
+
+    const normalizeType = (rawType: string, name: string): Account['type'] => {
+      const combined = `${rawType} ${name}`.toLowerCase();
+      if (combined.includes('credit') || combined.includes('kad kredit')) return 'credit_card';
+      if (combined.includes('paylater') || combined.includes('bnpl') || combined.includes('atome')) return 'paylater';
+      if (combined.includes('ewallet') || combined.includes('wallet') || combined.includes('tng') || combined.includes('mae')) return 'ewallet';
+      if (combined.includes('cash') || combined.includes('tunai') || combined.includes('dompet')) return 'cash';
+      if (combined.includes('investment') || combined.includes('pelaburan') || combined.includes('asnb') || combined.includes('ssp') || combined.includes('emas') || combined.includes('miga')) return 'investment';
+      return 'bank';
+    };
+
+    return rawList.map((acc: any, idx: number) => {
+      const id = String(acc.AccountID || acc.id || acc.account_id || `acc_${idx + 1}`);
+      const rawName = String(acc.AccountName || acc.account_name || acc.name || acc.Bank || acc.bank || `Akaun ${idx + 1}`).trim();
+      const rawType = String(acc.AccountType || acc.type || 'Bank');
+      const accType = normalizeType(rawType, rawName);
+      const meta = getMeta(acc.Bank || acc.bank || '', rawName, rawType);
+      
+      const balanceVal = acc.InitialBalance !== undefined ? acc.InitialBalance : acc.balance !== undefined ? acc.balance : acc.Balance;
+      const parsedBalance = parseFloat(balanceVal) || 0;
+      const creditLimit = parseFloat(acc.CreditLimit || acc.credit_limit) || undefined;
+
+      return {
+        id,
+        bank: acc.Bank || acc.bank || meta.bank,
+        account_name: rawName,
+        type: accType,
+        balance: parsedBalance,
+        credit_limit: creditLimit,
+        color: acc.color || meta.color,
+        icon: acc.icon || meta.icon,
+        notes: acc.Notes || acc.notes || '',
+        updated_at: acc.CreatedAt || acc.updated_at || new Date().toISOString().split('T')[0],
+      };
+    });
+  }
+
+  /**
+   * Recalculates live balances for all accounts based on their initial balance + transactions history
+   */
+  static computeLiveAccountBalances(accountsList: Account[], transactionsList: Transaction[]): Account[] {
+    if (!Array.isArray(accountsList) || accountsList.length === 0) return [];
+    
+    // Create quick lookup by account id and name
+    const txMap: Record<string, { income: number; expense: number; transferIn: number; transferOut: number }> = {};
+    
+    transactionsList.forEach((tx) => {
+      const amt = Number(tx.amount) || 0;
+      const accKey = String(tx.account_id || tx.account_name || '').toLowerCase();
+      if (!txMap[accKey]) {
+        txMap[accKey] = { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
+      }
+
+      if (tx.type === 'income') {
+        txMap[accKey].income += amt;
+      } else if (tx.type === 'expense') {
+        txMap[accKey].expense += amt;
+      } else if (tx.type === 'transfer') {
+        txMap[accKey].transferOut += amt;
+        if (tx.to_account_id || tx.to_account_name) {
+          const toKey = String(tx.to_account_id || tx.to_account_name || '').toLowerCase();
+          if (!txMap[toKey]) txMap[toKey] = { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
+          txMap[toKey].transferIn += amt;
+        }
+      }
+    });
+
+    return accountsList.map((acc) => {
+      const idKey = String(acc.id).toLowerCase();
+      const nameKey = String(acc.account_name).toLowerCase();
+      const bankKey = String(acc.bank).toLowerCase();
+
+      const delta1 = txMap[idKey] || { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
+      const delta2 = txMap[nameKey] || { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
+      const delta3 = txMap[bankKey] || { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
+
+      // Total delta without double-counting if keys differ
+      const incomeSum = delta1.income || delta2.income || delta3.income || 0;
+      const expenseSum = delta1.expense || delta2.expense || delta3.expense || 0;
+      const transferOutSum = delta1.transferOut || delta2.transferOut || delta3.transferOut || 0;
+      const transferInSum = delta1.transferIn || delta2.transferIn || delta3.transferIn || 0;
+
+      // Current balance = base balance + income - expense - transferOut + transferIn
+      const baseBal = Number(acc.balance) || 0;
+      const liveBal = baseBal + incomeSum - expenseSum - transferOutSum + transferInSum;
+
+      return {
+        ...acc,
+        balance: Math.round(liveBal * 100) / 100,
+      };
+    });
+  }
+
+  /**
    * Universal Sync with Google Apps Script Web App
    * Menyokong kedua-dua format: SakuTrack backend & MyWang AppsScript backend
    */
   static async syncWithGAS(action: string, payload: any = {}): Promise<{ success: boolean; data?: any; message?: string }> {
     const config: any = this.getGoogleSheetsConfig();
     const user = this.getUser();
-    const activeUsername = user?.username || 'admin';
+    const activeUsername = user?.username || 'user';
     const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
 
     if (!gasUrl) {
@@ -601,81 +746,78 @@ export class StorageService {
         return { success: false, message: testRes?.message || 'Gagal menyambung ke Google Apps Script URL. Sila pastikan Web App dideploy dengan Access: Anyone.' };
       }
 
-      // If initial fetch / getInitialData, try SakuTrack and MyWang action names
-      if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions') {
-        let gasResult: any = null;
+      // If initial fetch / getInitialData / syncDashboard
+      if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions' || action === 'get_accounts') {
+        let gasTxs: any[] = [];
+        let gasAccs: any[] = [];
 
-        // Try 1: SakuTrack action 'get_transactions'
+        // 1. Fetch transactions (support SakuTrack and MyWang endpoints)
         try {
-          const res1 = await fetchDirect('get_transactions', { username: activeUsername });
-          if (res1 && res1.status === 'success' && Array.isArray(res1.transactions)) {
-            gasResult = res1;
+          const resTx = await fetchDirect('get_transactions', { username: activeUsername });
+          if (resTx && resTx.status === 'success' && Array.isArray(resTx.transactions)) {
+            gasTxs = resTx.transactions;
           }
         } catch {}
 
-        // Try 2: MyWang action 'getDashboard'
-        if (!gasResult || gasResult.status === 'error') {
+        if (gasTxs.length === 0) {
           try {
-            const res2 = await fetchDirect('getDashboard', { token: activeUsername });
-            if (res2 && (res2.status === 'success' || res2.data)) {
-              gasResult = res2;
-            }
-          } catch {}
-        }
-
-        // Try 3: Action 'getTransactions'
-        if (!gasResult || gasResult.status === 'error') {
-          try {
-            const res3 = await fetchDirect('getTransactions', {});
-            if (res3 && (res3.status === 'success' || res3.data)) {
-              gasResult = res3;
-            }
-          } catch {}
-        }
-
-        // Try Server Proxy only if running in dedicated backend environment and direct fetch failed
-        if ((!gasResult || gasResult.status === 'error') && this.isBackendServerAvailable()) {
-          try {
-            const proxyRes = await fetch('/api/gas-proxy', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                webAppUrl: gasUrl,
-                action: action,
-                username: activeUsername,
-                data: payload,
-              }),
-            });
-            if (proxyRes.ok) {
-              const contentType = proxyRes.headers.get('content-type') || '';
-              if (contentType.includes('application/json')) {
-                const proxyData = await proxyRes.json();
-                if (proxyData && (proxyData.status === 'success' || proxyData.data || proxyData.transactions)) {
-                  gasResult = proxyData;
-                }
+            const resDash = await fetchDirect('getDashboard', { token: activeUsername });
+            if (resDash && (resDash.status === 'success' || resDash.data)) {
+              gasTxs = resDash.data?.recentTransactions || resDash.data?.transactions || (Array.isArray(resDash.data) ? resDash.data : []) || [];
+              if (resDash.data?.accounts || resDash.accounts) {
+                gasAccs = resDash.data?.accounts || resDash.accounts || [];
               }
             }
           } catch {}
         }
 
-        if (gasResult && gasResult.status !== 'error') {
-          config.isConnected = true;
-          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
-          this.saveGoogleSheetsConfig(config);
-
-          const rawList = gasResult.transactions || gasResult.data?.recentTransactions || gasResult.data?.transactions || (Array.isArray(gasResult.data) ? gasResult.data : []) || [];
-          const normalized = this.normalizeRawTransactions(rawList);
-          const accounts = gasResult.accounts || gasResult.data?.accounts || undefined;
-
-          return {
-            success: true,
-            data: {
-              transactions: normalized,
-              accounts,
-            },
-            message: `Diselaraskan ${normalized.length} rekod dari Google Sheets!`,
-          };
+        // 2. Fetch accounts (support SakuTrack 'get_accounts' and MyWang 'getAccounts')
+        if (gasAccs.length === 0) {
+          try {
+            const resAcc1 = await fetchDirect('get_accounts', { username: activeUsername });
+            if (resAcc1 && resAcc1.status === 'success' && Array.isArray(resAcc1.accounts)) {
+              gasAccs = resAcc1.accounts;
+            } else if (resAcc1 && Array.isArray(resAcc1.data)) {
+              gasAccs = resAcc1.data;
+            }
+          } catch {}
         }
+
+        if (gasAccs.length === 0) {
+          try {
+            const resAcc2 = await fetchDirect('getAccounts', {});
+            if (resAcc2 && (resAcc2.status === 'success' || Array.isArray(resAcc2.data))) {
+              gasAccs = resAcc2.data || resAcc2.accounts || [];
+            }
+          } catch {}
+        }
+
+        // Normalize transactions and accounts
+        const normalizedTxs = this.normalizeRawTransactions(gasTxs);
+        let normalizedAccs = this.normalizeRawAccounts(gasAccs);
+
+        if (normalizedAccs.length > 0) {
+          this.saveAccounts(normalizedAccs);
+        } else {
+          normalizedAccs = this.getAccounts();
+        }
+
+        if (normalizedTxs.length > 0) {
+          this.saveTransactions(normalizedTxs);
+        }
+
+        config.isConnected = true;
+        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+        this.saveGoogleSheetsConfig(config);
+
+        return {
+          success: true,
+          data: {
+            transactions: normalizedTxs,
+            accounts: normalizedAccs,
+          },
+          message: `Diselaraskan ${normalizedAccs.length} akaun & ${normalizedTxs.length} transaksi dari Google Sheets!`,
+        };
       }
 
       // Handle addTransaction
@@ -696,6 +838,24 @@ export class StorageService {
           await fetchDirect('addTransaction', payload);
         } catch {}
         return { success: true, message: 'Transaksi direkod ke Google Sheets.' };
+      }
+
+      // Handle updateAccount / saveAccount
+      if (action === 'updateAccount' || action === 'saveAccount' || action === 'edit_account') {
+        const sakuAccPayload = {
+          id: payload.id || payload.AccountID,
+          account_name: payload.account_name || payload.AccountName,
+          type: payload.type || payload.AccountType,
+          balance: payload.balance || payload.InitialBalance,
+          notes: payload.notes || payload.Notes,
+        };
+        try {
+          await fetchDirect('edit_account', sakuAccPayload);
+        } catch {}
+        try {
+          await fetchDirect('saveAccount', payload);
+        } catch {}
+        return { success: true, message: 'Akaun dikemaskini ke Google Sheets.' };
       }
 
       // Handle deleteTransaction
