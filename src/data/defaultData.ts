@@ -1,4 +1,4 @@
-import { Account, CategoryBudget, FinancialGoal, DebtRecord, Transaction, CategoryItem, User } from '../types';
+import { Account, Transaction, CategoryItem, User, LoanFinancing, AuditLog } from '../types';
 
 export const DEFAULT_USER: User = {
   id: 'usr_admin',
@@ -18,19 +18,19 @@ export const INITIAL_ACCOUNTS: Account[] = [
     balance: 0.00,
     color: 'from-amber-500 to-yellow-600',
     icon: 'Landmark',
-    notes: 'Akaun simpanan utama gaji',
-    updated_at: '2026-08-14',
+    notes: 'Akaun Simpanan Maybank',
+    updated_at: '2026-08-16',
   },
   {
     id: 'acc_mb_mae',
     bank: 'Maybank',
-    account_name: 'MAE Digital Wallet',
+    account_name: 'MAE',
     type: 'ewallet',
     balance: 0.00,
     color: 'from-amber-400 to-yellow-500',
     icon: 'Smartphone',
-    notes: 'Perbelanjaan harian & QR Pay',
-    updated_at: '2026-08-14',
+    notes: 'MAE Digital Wallet & QR Pay',
+    updated_at: '2026-08-16',
   },
   {
     id: 'acc_mb_cc',
@@ -41,21 +41,21 @@ export const INITIAL_ACCOUNTS: Account[] = [
     credit_limit: 8000.00,
     color: 'from-amber-600 to-yellow-800',
     icon: 'CreditCard',
-    notes: 'TreatsPoints & Petrol rebate',
-    updated_at: '2026-08-14',
+    notes: 'Maybank Islamic Ikhwan Card',
+    updated_at: '2026-08-16',
   },
 
   // 2. RHB Bank
   {
     id: 'acc_rhb_sav',
     bank: 'RHB Bank',
-    account_name: 'RHB Savings Account',
+    account_name: 'Savings Account',
     type: 'bank',
     balance: 0.00,
     color: 'from-blue-600 to-cyan-700',
     icon: 'Landmark',
-    notes: 'Dana kecemasan & simpanan',
-    updated_at: '2026-08-14',
+    notes: 'RHB Simpanan',
+    updated_at: '2026-08-16',
   },
   {
     id: 'acc_rhb_cc',
@@ -66,8 +66,8 @@ export const INITIAL_ACCOUNTS: Account[] = [
     credit_limit: 6000.00,
     color: 'from-blue-700 to-indigo-900',
     icon: 'CreditCard',
-    notes: 'Cashback barangan dapur & online',
-    updated_at: '2026-08-14',
+    notes: 'Cashback petrol, groceries & dining',
+    updated_at: '2026-08-16',
   },
 
   // 3. CIMB
@@ -81,110 +81,49 @@ export const INITIAL_ACCOUNTS: Account[] = [
     color: 'from-red-600 to-rose-800',
     icon: 'CreditCard',
     notes: 'Rebat minyak 8% Petronas',
-    updated_at: '2026-08-14',
+    updated_at: '2026-08-16',
   },
 
-  // 4. AEON Bank (Digital Bank & Savings Pot)
-  {
-    id: 'acc_aeon_sav',
-    bank: 'AEON Bank',
-    account_name: 'Savings Account-i',
-    type: 'bank',
-    balance: 0.00,
-    color: 'from-fuchsia-600 to-pink-700',
-    icon: 'Landmark',
-    notes: 'Bank digital Islamik AEON',
-    updated_at: '2026-08-14',
-  },
-  {
-    id: 'acc_aeon_pot',
-    bank: 'AEON Bank',
-    account_name: 'Savings Pot (Tabung Keluarga)',
-    type: 'bank',
-    balance: 0.00,
-    color: 'from-pink-600 to-rose-700',
-    icon: 'PiggyBank',
-    notes: 'Simpanan tabung keluarga khas',
-    updated_at: '2026-08-14',
-  },
-
-  // 5. GX Bank (Digital Bank)
-  {
-    id: 'acc_gx_sav',
-    bank: 'GXBank',
-    account_name: 'GX Savings Account',
-    type: 'bank',
-    balance: 0.00,
-    color: 'from-purple-600 to-indigo-800',
-    icon: 'Landmark',
-    notes: 'GXBank faedah harian',
-    updated_at: '2026-08-14',
-  },
-
-  // 6. CASH (Duit Tunai di Tangan)
-  {
-    id: 'acc_cash_hand',
-    bank: 'CASH',
-    account_name: 'Duit Tunai di Tangan',
-    type: 'cash',
-    balance: 0.00,
-    color: 'from-emerald-600 to-teal-700',
-    icon: 'Coins',
-    notes: 'Perbelanjaan tunai dalam dompet fizikal',
-    updated_at: '2026-08-14',
-  },
-
-  // 7. Touch 'n Go (Split: eWallet & GO+)
+  // 4. Touch 'n Go eWallet
   {
     id: 'acc_tng_wallet',
-    bank: "Touch 'n Go",
-    account_name: 'TNG eWallet (Utama)',
+    bank: "Touch 'n Go eWallet",
+    account_name: "Touch 'n Go eWallet",
     type: 'ewallet',
     balance: 0.00,
     color: 'from-blue-500 to-indigo-600',
     icon: 'Smartphone',
     notes: 'Tol RFID, Street parking & QR',
-    updated_at: '2026-08-14',
-  },
-  {
-    id: 'acc_tng_goplus',
-    bank: "Touch 'n Go",
-    account_name: 'TNG GO+ (Pelaburan)',
-    type: 'ewallet',
-    balance: 0.00,
-    color: 'from-cyan-500 to-blue-600',
-    icon: 'TrendingUp',
-    notes: 'Pulangan harian GO+ (Principal Asset)',
-    updated_at: '2026-08-14',
+    updated_at: '2026-08-16',
   },
 
-  // 8. Boost
+  // 5. Boost
   {
     id: 'acc_boost',
     bank: 'Boost',
-    account_name: 'Boost eWallet',
+    account_name: 'Boost',
     type: 'ewallet',
     balance: 0.00,
     color: 'from-red-500 to-orange-600',
     icon: 'Flame',
-    notes: 'Boost Stars loyalty',
-    updated_at: '2026-08-14',
+    notes: 'Boost Pay & Loyalty Stars',
+    updated_at: '2026-08-16',
   },
 
-  // 9. Setel
+  // 6. Setel by Petronas
   {
     id: 'acc_setel',
     bank: 'Setel by Petronas',
-    account_name: 'Setel Wallet & Mesra Points',
+    account_name: 'Setel by Petronas',
     type: 'ewallet',
     balance: 0.00,
     color: 'from-emerald-500 to-teal-700',
     icon: 'Fuel',
-    notes: 'Minyak Petronas automatik',
-    updated_at: '2026-08-14',
+    notes: 'Minyak Petronas Automatik',
+    updated_at: '2026-08-16',
   },
 
-  // 10. Shopee
+  // 7. Shopee
   {
     id: 'acc_shopeepay',
     bank: 'Shopee',
@@ -193,8 +132,8 @@ export const INITIAL_ACCOUNTS: Account[] = [
     balance: 0.00,
     color: 'from-orange-500 to-amber-600',
     icon: 'ShoppingBag',
-    notes: 'Pembelian dalam Shopee & Coins',
-    updated_at: '2026-08-14',
+    notes: 'ShopeePay Wallet',
+    updated_at: '2026-08-16',
   },
   {
     id: 'acc_spaylater',
@@ -205,22 +144,22 @@ export const INITIAL_ACCOUNTS: Account[] = [
     credit_limit: 2500.00,
     color: 'from-amber-600 to-orange-700',
     icon: 'Clock',
-    notes: 'Bayaran ansuran gajet',
-    updated_at: '2026-08-14',
+    notes: 'Shopee SPayLater BNPL',
+    updated_at: '2026-08-16',
   },
 
-  // 11. Atome
+  // 8. Atome
   {
     id: 'acc_atome_pl',
     bank: 'Atome',
-    account_name: 'Atome PayLater (BNPL)',
+    account_name: 'PayLater',
     type: 'paylater',
     balance: 0.00,
     credit_limit: 1500.00,
     color: 'from-lime-400 to-yellow-500',
     icon: 'Zap',
-    notes: 'Ansuran 0% faedah',
-    updated_at: '2026-08-14',
+    notes: 'Atome 3-bulan ansuran 0% faedah',
+    updated_at: '2026-08-16',
   },
   {
     id: 'acc_atome_card',
@@ -231,32 +170,58 @@ export const INITIAL_ACCOUNTS: Account[] = [
     credit_limit: 1000.00,
     color: 'from-yellow-400 to-lime-500',
     icon: 'CreditCard',
-    notes: 'Kad fizikal Atome',
-    updated_at: '2026-08-14',
+    notes: 'Kad fizikal Mastercard Atome',
+    updated_at: '2026-08-16',
   },
 
-  // 12. BSN SSP (Sijil Simpanan Premium)
+  // 9. BSN
   {
-    id: 'acc_bsn_ssp_250',
+    id: 'acc_bsn_sav',
     bank: 'BSN',
-    account_name: 'SSP BSN (Sijil RM250)',
-    type: 'investment',
-    balance: 250.00,
+    account_name: 'BSN',
+    type: 'bank',
+    balance: 0.00,
     color: 'from-teal-600 to-emerald-700',
-    icon: 'Award',
-    notes: 'Cabutan Sijil Simpanan Premium RM250',
-    updated_at: '2026-08-14',
+    icon: 'Landmark',
+    notes: 'Bank Simpanan Nasional',
+    updated_at: '2026-08-16',
+  },
+
+  // 10. GXBANK
+  {
+    id: 'acc_gx_sav',
+    bank: 'GXBANK',
+    account_name: 'GXBANK',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-violet-600 to-purple-800',
+    icon: 'Landmark',
+    notes: 'Bank Digital GX faedah harian',
+    updated_at: '2026-08-16',
+  },
+
+  // 11. AEON BANK
+  {
+    id: 'acc_aeon_sav',
+    bank: 'AEON BANK',
+    account_name: 'AEON BANK',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-fuchsia-600 to-pink-700',
+    icon: 'Landmark',
+    notes: 'Bank Digital Islamik AEON',
+    updated_at: '2026-08-16',
   },
   {
-    id: 'acc_bsn_ssp_100',
-    bank: 'BSN',
-    account_name: 'SSP BSN (Sijil RM100)',
-    type: 'investment',
-    balance: 100.00,
-    color: 'from-teal-600 to-emerald-700',
-    icon: 'Award',
-    notes: 'Cabutan Sijil Simpanan Premium RM100',
-    updated_at: '2026-08-14',
+    id: 'acc_aeon_pot',
+    bank: 'AEON BANK',
+    account_name: 'SAVINGS POT (TABUNG KELUARGA)',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-pink-600 to-rose-700',
+    icon: 'PiggyBank',
+    notes: 'Simpanan khas Tabung Keluarga',
+    updated_at: '2026-08-16',
   },
   {
     id: 'acc_bsn_ssp_40',
