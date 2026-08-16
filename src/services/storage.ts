@@ -630,59 +630,18 @@ export class StorageService {
   }
 
   /**
-   * Recalculates live balances for all accounts based on their initial balance + transactions history
+   * Recalculates live balances for all accounts.
+   * If accounts come with their live updated balance directly from user edits or sheet,
+   * we ensure we do not double-apply transaction histories onto already-reconciled balances.
    */
   static computeLiveAccountBalances(accountsList: Account[], transactionsList: Transaction[]): Account[] {
     if (!Array.isArray(accountsList) || accountsList.length === 0) return [];
     
-    // Create quick lookup by account id and name
-    const txMap: Record<string, { income: number; expense: number; transferIn: number; transferOut: number }> = {};
-    
-    transactionsList.forEach((tx) => {
-      const amt = Number(tx.amount) || 0;
-      const accKey = String(tx.account_id || tx.account_name || '').toLowerCase();
-      if (!txMap[accKey]) {
-        txMap[accKey] = { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
-      }
-
-      if (tx.type === 'income') {
-        txMap[accKey].income += amt;
-      } else if (tx.type === 'expense') {
-        txMap[accKey].expense += amt;
-      } else if (tx.type === 'transfer') {
-        txMap[accKey].transferOut += amt;
-        if (tx.to_account_id || tx.to_account_name) {
-          const toKey = String(tx.to_account_id || tx.to_account_name || '').toLowerCase();
-          if (!txMap[toKey]) txMap[toKey] = { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
-          txMap[toKey].transferIn += amt;
-        }
-      }
-    });
-
-    return accountsList.map((acc) => {
-      const idKey = String(acc.id).toLowerCase();
-      const nameKey = String(acc.account_name).toLowerCase();
-      const bankKey = String(acc.bank).toLowerCase();
-
-      const delta1 = txMap[idKey] || { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
-      const delta2 = txMap[nameKey] || { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
-      const delta3 = txMap[bankKey] || { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
-
-      // Total delta without double-counting if keys differ
-      const incomeSum = delta1.income || delta2.income || delta3.income || 0;
-      const expenseSum = delta1.expense || delta2.expense || delta3.expense || 0;
-      const transferOutSum = delta1.transferOut || delta2.transferOut || delta3.transferOut || 0;
-      const transferInSum = delta1.transferIn || delta2.transferIn || delta3.transferIn || 0;
-
-      // Current balance = base balance + income - expense - transferOut + transferIn
-      const baseBal = Number(acc.balance) || 0;
-      const liveBal = baseBal + incomeSum - expenseSum - transferOutSum + transferInSum;
-
-      return {
-        ...acc,
-        balance: Math.round(liveBal * 100) / 100,
-      };
-    });
+    // If accounts already contain current balances saved explicitly, keep them intact
+    return accountsList.map((acc) => ({
+      ...acc,
+      balance: Math.round((Number(acc.balance) || 0) * 100) / 100,
+    }));
   }
 
   /**
@@ -855,54 +814,113 @@ export class StorageService {
         };
       }
 
-      // Handle addTransaction
+      // Handle updateAccount / saveAccount / edit_account / addAccount
+      if (action === 'updateAccount' || action === 'saveAccount' || action === 'edit_account' || action === 'addAccount' || action === 'add_account') {
+        const sakuAccPayload = {
+          AccountID: payload.AccountID || payload.id || payload.account_id || `ACC_${Date.now()}`,
+          id: payload.AccountID || payload.id || payload.account_id || `ACC_${Date.now()}`,
+          account_id: payload.AccountID || payload.id || payload.account_id || `ACC_${Date.now()}`,
+          AccountName: payload.AccountName || payload.account_name || payload.bank || 'Akaun',
+          account_name: payload.AccountName || payload.account_name || payload.bank || 'Akaun',
+          bank: payload.bank || payload.Bank || payload.account_name || 'Akaun',
+          AccountType: payload.AccountType || payload.type || 'Bank',
+          type: payload.AccountType || payload.type || 'Bank',
+          InitialBalance: payload.InitialBalance !== undefined ? payload.InitialBalance : (payload.balance !== undefined ? payload.balance : 0),
+          balance: payload.InitialBalance !== undefined ? payload.InitialBalance : (payload.balance !== undefined ? payload.balance : 0),
+          AccountNumber: payload.AccountNumber || payload.account_number || '',
+          account_number: payload.AccountNumber || payload.account_number || '',
+          Notes: payload.Notes || payload.notes || '',
+          notes: payload.Notes || payload.notes || '',
+          Username: payload.Username || payload.username || activeUsername || 'user',
+          username: payload.Username || payload.username || activeUsername || 'user',
+        };
+
+        let gasResult: any = null;
+        try {
+          gasResult = await executeGasCall('save_account', sakuAccPayload);
+        } catch {}
+
+        if (!gasResult || gasResult.status !== 'success') {
+          try {
+            gasResult = await executeGasCall('saveAccount', sakuAccPayload);
+          } catch {}
+        }
+
+        if (!gasResult || gasResult.status !== 'success') {
+          try {
+            gasResult = await executeGasCall('edit_account', sakuAccPayload);
+          } catch {}
+        }
+
+        if (!gasResult || gasResult.status !== 'success') {
+          try {
+            gasResult = await executeGasCall('add_account', sakuAccPayload);
+          } catch {}
+        }
+
+        config.isConnected = true;
+        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+        this.saveGoogleSheetsConfig(config);
+
+        return { 
+          success: true, 
+          data: gasResult?.data || sakuAccPayload, 
+          message: gasResult?.message || `Akaun ${sakuAccPayload.AccountName} berjaya disimpan ke Google Sheets!` 
+        };
+      }
+
+      // Handle deleteAccount / delete_account
+      if (action === 'deleteAccount' || action === 'delete_account') {
+        const accId = payload.AccountID || payload.id || payload.account_id;
+        let delRes: any = null;
+        try {
+          delRes = await executeGasCall('delete_account', { AccountID: accId, id: accId });
+        } catch {}
+        if (!delRes || delRes.status !== 'success') {
+          try {
+            delRes = await executeGasCall('deleteAccount', { AccountID: accId, id: accId });
+          } catch {}
+        }
+        return { success: true, message: delRes?.message || 'Akaun berjaya dipadam dari Google Sheets.' };
+      }
+
+      // Handle addTransaction / add_transaction
       if (action === 'addTransaction' || action === 'add_transaction') {
         const sakuPayload = {
-          date: payload.date || new Date().toISOString().split('T')[0],
-          type: payload.type || 'expense',
-          category: payload.category || 'Lain-lain',
-          amount: parseFloat(payload.amount) || 0,
-          source: payload.account_name || 'Maybank',
-          note: payload.note || '',
-          receipt: payload.receipt_url || null,
+          TxID: payload.TxID || payload.id || `Tx_${Date.now()}`,
+          id: payload.TxID || payload.id || `Tx_${Date.now()}`,
+          Date: payload.Date || payload.date || new Date().toISOString().split('T')[0],
+          date: payload.Date || payload.date || new Date().toISOString().split('T')[0],
+          Type: payload.Type || payload.type || 'expense',
+          type: payload.Type || payload.type || 'expense',
+          Category: payload.Category || payload.category || 'Lain-lain',
+          category: payload.Category || payload.category || 'Lain-lain',
+          Amount: parseFloat(payload.Amount !== undefined ? payload.Amount : payload.amount) || 0,
+          amount: parseFloat(payload.Amount !== undefined ? payload.Amount : payload.amount) || 0,
+          Discount: parseFloat(payload.Discount !== undefined ? payload.Discount : payload.discount) || 0,
+          discount: parseFloat(payload.Discount !== undefined ? payload.Discount : payload.discount) || 0,
+          Method: payload.Method || payload.payment_method || payload.method || 'Online Transfer',
+          payment_method: payload.Method || payload.payment_method || payload.method || 'Online Transfer',
+          Source: payload.Source || payload.source || payload.account_name || payload.bank || 'Maybank',
+          source: payload.Source || payload.source || payload.account_name || payload.bank || 'Maybank',
+          Note: payload.Note || payload.note || '',
+          note: payload.Note || payload.note || '',
+          ReceiptURL: payload.ReceiptURL || payload.receipt_url || payload.receipt || '',
+          receipt_url: payload.ReceiptURL || payload.receipt_url || payload.receipt || '',
+          Username: payload.Username || payload.username || activeUsername || 'user',
+          username: payload.Username || payload.username || activeUsername || 'user',
         };
-        try {
-          await executeGasCall('add_transaction', sakuPayload);
-        } catch {}
-        try {
-          await executeGasCall('addTransaction', payload);
-        } catch {}
-        return { success: true, message: 'Transaksi direkod ke Google Sheets.' };
-      }
 
-      // Handle updateAccount / saveAccount
-      if (action === 'updateAccount' || action === 'saveAccount' || action === 'edit_account') {
-        const sakuAccPayload = {
-          id: payload.id || payload.AccountID,
-          account_name: payload.account_name || payload.AccountName,
-          type: payload.type || payload.AccountType,
-          balance: payload.balance || payload.InitialBalance,
-          notes: payload.notes || payload.Notes,
-        };
+        let txRes: any = null;
         try {
-          await executeGasCall('edit_account', sakuAccPayload);
+          txRes = await executeGasCall('add_transaction', sakuPayload);
         } catch {}
-        try {
-          await executeGasCall('saveAccount', payload);
-        } catch {}
-        return { success: true, message: 'Akaun dikemaskini ke Google Sheets.' };
-      }
-
-      // Handle deleteTransaction
-      if (action === 'deleteTransaction' || action === 'delete_transaction') {
-        const txId = payload.id || payload.txId;
-        try {
-          await executeGasCall('delete_transaction', { txId });
-        } catch {}
-        try {
-          await executeGasCall('deleteTransaction', { id: txId });
-        } catch {}
-        return { success: true, message: 'Transaksi dipadam dari Google Sheets.' };
+        if (!txRes || txRes.status !== 'success') {
+          try {
+            txRes = await executeGasCall('addTransaction', sakuPayload);
+          } catch {}
+        }
+        return { success: true, message: txRes?.message || 'Transaksi direkod ke Google Sheets.' };
       }
 
       // Generic pass-through
