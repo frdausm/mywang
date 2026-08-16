@@ -260,11 +260,17 @@ function DashboardApp() {
     
     const newLogs = StorageService.addLog('EDIT_ACCOUNT', `Baki akaun ${updated.account_name} dikemaskini kepada RM ${updated.balance.toFixed(2)}`, user?.username);
     setLogs(newLogs);
-    addToast('success', `Baki ${updated.account_name} berjaya dikemaskini.`);
 
-    // Dual-save: Server Backend + GAS queue
+    // Synchronous real-time update to Google Sheets
+    const syncRes = await StorageService.syncWithGAS('saveAccount', updated);
+    if (syncRes.success) {
+      addToast('success', syncRes.message || `Baki ${updated.account_name} berjaya disimpan ke Google Sheets.`);
+    } else {
+      addToast('info', `Baki ${updated.account_name} disimpan di peranti.`);
+    }
+
+    // Persist full state to backend server
     StorageService.saveToBackendServer({ accounts: newAccounts }).catch(() => {});
-    StorageService.enqueueSync('updateAccount', updated);
   };
 
   // 2. Add New Account
@@ -275,11 +281,16 @@ function DashboardApp() {
 
     const newLogs = StorageService.addLog('ADD_ACCOUNT', `Akaun baru ditambah: ${newAcc.bank} - ${newAcc.account_name}`, user?.username);
     setLogs(newLogs);
-    addToast('success', `Akaun ${newAcc.account_name} berjaya ditambah.`);
 
-    // Dual-save: Server Backend + GAS queue
+    // Synchronous real-time update to Google Sheets
+    const syncRes = await StorageService.syncWithGAS('addAccount', newAcc);
+    if (syncRes.success) {
+      addToast('success', syncRes.message || `Akaun ${newAcc.account_name} berjaya ditambah ke Google Sheets.`);
+    } else {
+      addToast('info', `Akaun ${newAcc.account_name} disimpan di peranti.`);
+    }
+
     StorageService.saveToBackendServer({ accounts: newAccounts }).catch(() => {});
-    StorageService.enqueueSync('addAccount', newAcc);
   };
 
   // 3. Delete Account
@@ -293,9 +304,15 @@ function DashboardApp() {
       const newLogs = StorageService.addLog('DELETE_ACCOUNT', `Akaun dipadam: ${target.account_name}`, user?.username);
       setLogs(newLogs);
     }
-    addToast('info', 'Akaun berjaya dipadam.');
+
+    const syncRes = await StorageService.syncWithGAS('deleteAccount', { id: accId, AccountID: accId });
+    if (syncRes.success) {
+      addToast('info', syncRes.message || 'Akaun berjaya dipadam dari Google Sheets.');
+    } else {
+      addToast('info', 'Akaun dipadam dari peranti.');
+    }
+
     StorageService.saveToBackendServer({ accounts: newAccounts }).catch(() => {});
-    StorageService.enqueueSync('deleteAccount', { id: accId });
   };
 
   // 4. Dual-Entry Transfer
