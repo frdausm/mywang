@@ -1,0 +1,218 @@
+import { Account } from '../types';
+
+export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
+  // 1. Maybank
+  {
+    id: 'acc_mb_sav',
+    bank: 'Maybank',
+    account_name: 'Savings Account',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-amber-500 to-yellow-600',
+    icon: 'Landmark',
+    notes: 'Akaun simpanan utama',
+    updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_mb_mae',
+    bank: 'Maybank',
+    account_name: 'MAE',
+    type: 'ewallet',
+    balance: 0.00,
+    color: 'from-amber-400 to-yellow-500',
+    icon: 'Smartphone',
+    notes: 'MAE Digital Wallet & QR Pay',
+    updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_mb_cc',
+    bank: 'Maybank',
+    account_name: 'Credit Card Ikhwan Islamic',
+    type: 'credit_card',
+    balance: 0.00,
+    credit_limit: 8000.00,
+    color: 'from-amber-600 to-yellow-800',
+    icon: 'CreditCard',
+    notes: 'Maybank Islamic Ikhwan Card',
+    updated_at: '2026-08-16',
+  },
+
+  // 2. RHB Bank
+  {
+    id: 'acc_rhb_sav',
+    bank: 'RHB Bank',
+    account_name: 'Savings Account',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-blue-600 to-cyan-700',
+    icon: 'Landmark',
+    notes: 'RHB Simpanan',
+    updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_rhb_cc',
+    bank: 'RHB Bank',
+    account_name: 'RHB Credit Card Islamic Cashback',
+    type: 'credit_card',
+    balance: 0.00,
+    credit_limit: 6000.00,
+    color: 'from-blue-700 to-indigo-900',
+    icon: 'CreditCard',
+    notes: 'Cashback petrol, groceries & dining',
+    updated_at: '2026-08-16',
+  },
+
+  // 3. CIMB
+  {
+    id: 'acc_cimb_cc',
+    bank: 'CIMB',
+    account_name: 'CIMB Petronas Visa Islamic Credit Card',
+    type: 'credit_card',
+    balance: 0.00,
+    credit_limit: 5000.00,
+    color: 'from-red-600 to-rose-800',
+    icon: 'CreditCard',
+    notes: 'Rebat minyak 8% Petronas',
+    updated_at: '2026-08-16',
+  },
+
+  // 4. Touch 'n Go eWallet
+  {
+    id: 'acc_tng_wallet',
+    bank: "Touch 'n Go eWallet",
+    account_name: "Touch 'n Go eWallet",
+    type: 'ewallet',
+    balance: 0.00,
+    color: 'from-blue-500 to-indigo-600',
+    icon: 'Smartphone',
+    notes: 'Tol RFID, Street parking & QR',
+    updated_at: '2026-08-16',
+  },
+
+  // 5. Boost
+  {
+    id: 'acc_boost',
+    bank: 'Boost',
+    account_name: 'Boost eWallet',
+    type: 'ewallet',
+    balance: 0.00,
+    color: 'from-red-500 to-orange-600',
+    icon: 'Flame',
+    notes: 'Boost Pay & Loyalty Stars',
+    updated_at: '2026-08-16',
+  },
+
+  // 6. Setel by Petronas
+  {
+    id: 'acc_setel',
+    bank: 'Setel by Petronas',
+    account_name: 'Setel Wallet',
+    type: 'ewallet',
+    balance: 0.00,
+    color: 'from-emerald-500 to-teal-700',
+    icon: 'Fuel',
+    notes: 'Minyak Petronas Automatik',
+    updated_at: '2026-08-16',
+  },
+
+  // 7. Shopee
+  {
+    id: 'acc_shopeepay',
+    bank: 'Shopee',
+    account_name: 'ShopeePay',
+    type: 'ewallet',
+    balance: 0.00,
+    color: 'from-orange-500 to-amber-600',
+    icon: 'ShoppingBag',
+    notes: 'ShopeePay Wallet',
+    updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_spaylater',
+    bank: 'Shopee',
+    account_name: 'SPayLater',
+    type: 'paylater',
+    balance: 0.00,
+    credit_limit: 2500.00,
+    color: 'from-amber-600 to-orange-700',
+    icon: 'Clock',
+    notes: 'Shopee SPayLater BNPL',
+    updated_at: '2026-08-16',
+  },
+
+  // 8. Atome
+  {
+    id: 'acc_atome_pl',
+    bank: 'Atome',
+    account_name: 'PayLater',
+    type: 'paylater',
+    balance: 0.00,
+    credit_limit: 1500.00,
+    color: 'from-lime-400 to-yellow-500',
+    icon: 'Zap',
+    notes: 'Atome 3-bulan ansuran 0% faedah',
+    updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_atome_card',
+    bank: 'Atome',
+    account_name: 'Atome Card',
+    type: 'credit_card',
+    balance: 0.00,
+    credit_limit: 1000.00,
+    color: 'from-yellow-400 to-lime-500',
+    icon: 'CreditCard',
+    notes: 'Kad fizikal Mastercard Atome',
+    updated_at: '2026-08-16',
+  },
+
+  // 9. BSN
+  {
+    id: 'acc_bsn_sav',
+    bank: 'BSN',
+    account_name: 'BSN Savings / GIRO',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-teal-600 to-emerald-700',
+    icon: 'Landmark',
+    notes: 'Bank Simpanan Nasional',
+    updated_at: '2026-08-16',
+  },
+
+  // 10. GXBANK
+  {
+    id: 'acc_gx_sav',
+    bank: 'GXBANK',
+    account_name: 'GX Savings Account',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-violet-600 to-purple-800',
+    icon: 'Landmark',
+    notes: 'Bank Digital GX faedah harian',
+    updated_at: '2026-08-16',
+  },
+
+  // 11. AEON BANK
+  {
+    id: 'acc_aeon_sav',
+    bank: 'AEON BANK',
+    account_name: 'Savings Account-i',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-fuchsia-600 to-pink-700',
+    icon: 'Landmark',
+    notes: 'Bank Digital Islamik AEON',
+    updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_aeon_pot',
+    bank: 'AEON BANK',
+    account_name: 'SAVINGS POT (TABUNG KELUARGA)',
+    type: 'bank',
+    balance: 0.00,
+    color: 'from-pink-600 to-rose-700',
+    icon: 'PiggyBank',
+    notes: 'Simpanan khas Tabung Keluarga',
+    updated_at: '2026-08-16',
+  },
+];
