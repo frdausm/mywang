@@ -694,6 +694,16 @@ function DashboardApp() {
                   setIsTransferOpen(true);
                 }}
                 onAddAccount={() => setIsAddAccountOpen(true)}
+                onApplyInstitutionPreset={(presetAccounts) => {
+                  StorageService.saveAccounts(presetAccounts);
+                  setAccounts(presetAccounts);
+                  addToast('success', '11 Grid Institusi (16 Akaun) berjaya diaktifkan!');
+                  StorageService.syncWithGAS({
+                    action: 'batch_save_accounts',
+                    accounts: presetAccounts,
+                    username: user?.username || 'admin',
+                  }).catch(() => {});
+                }}
               />
             )}
 
