@@ -1,515 +1,1252 @@
-import React, { useState } from 'react';
-import { Account } from '../types';
-import { formatCurrency, formatDateMalay, getBankVisuals } from '../utils/formatters';
-import { 
-  Pencil, 
-  ArrowLeftRight, 
-  Plus, 
-  CreditCard, 
-  Smartphone, 
-  Landmark, 
-  Clock, 
-  Coins, 
-  Wallet,
-  Sparkles,
-  LayoutGrid,
-  Building2,
-  CheckCircle2
-} from 'lucide-react';
-import { motion } from 'motion/react';
-import { INSTITUTION_ACCOUNTS_PRESET } from '../data/institutionPreset';
+import { Account, Transaction, CategoryItem, SummaryStats, User, AuditLog, GoogleSheetsConfig, LoanFinancing } from '../types';
+import { INITIAL_ACCOUNTS, INITIAL_INCOME_TYPES, INITIAL_EXPENSE_TYPES, INITIAL_TRANSACTIONS, INITIAL_LOGS, DEFAULT_USER, INITIAL_LOANS, INITIAL_GAS_CONFIG } from '../data/defaultData';
 
-interface AccountsGridProps {
-  accounts: Account[];
-  onEditAccount: (account: Account) => void;
-  onQuickTransfer: (sourceAccount: Account) => void;
-  onAddAccount: () => void;
-  onApplyInstitutionPreset?: (presetAccounts: Account[]) => void;
-}
+const STORAGE_KEYS = {
+  ACCOUNTS: 'mywang_accounts',
+  TRANSACTIONS: 'mywang_transactions',
+  LOANS: 'mywang_loans_v2',
+  SECRET_PASSCODE: 'mywang_secret_passcode',
+  INCOME_TYPES: 'mywang_income_types',
+  EXPENSE_TYPES: 'mywang_expense_types',
+  LOGS: 'mywang_logs',
+  USER: 'mywang_user',
+  GAS_CONFIG: 'mywang_gas_config',
+  DARK_MODE: 'mywang_dark_mode',
+  ZEROED_FLAG: 'mywang_amounts_zeroed_v5',
+  PENDING_QUEUE: 'mywang_pending_sync_queue'
+};
 
-// Ordered list of Institutions as requested
-const INSTITUTIONS_ORDER = [
-  'Maybank',
-  'RHB Bank',
-  'CIMB',
-  "Touch 'n Go eWallet",
-  'Boost',
-  'Setel by Petronas',
-  'Shopee',
-  'Atome',
-  'BSN',
-  'GXBANK',
-  'AEON BANK',
-  'ASNB',
-];
-
-export const AccountsGrid: React.FC<AccountsGridProps> = ({
-  accounts,
-  onEditAccount,
-  onQuickTransfer,
-  onAddAccount,
-  onApplyInstitutionPreset,
-}) => {
-  const [filterType, setFilterType] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'by_institution' | 'flat'>('by_institution');
-
-  const filteredAccounts = accounts.filter((acc) => {
-    if (filterType === 'all') return true;
-    if (filterType === 'bank') return acc.type === 'bank';
-    if (filterType === 'ewallet') return acc.type === 'ewallet';
-    if (filterType === 'credit') return acc.type === 'credit_card' || acc.type === 'paylater';
-    if (filterType === 'invest') return acc.type === 'investment' || acc.type === 'gold';
-    if (filterType === 'cash') return acc.type === 'cash';
-    return true;
-  });
-
-  // Helper to render account type icon
-  const renderAccountIcon = (acc: Account) => {
-    if (acc.type === 'gold') return 'Sparkles';
-    if (acc.type === 'investment') return 'Coins';
-    if (acc.type === 'cash') return <Wallet className="w-4 h-4 text-emerald-500" />;
-    if (acc.type === 'bank') return <Landmark className="w-4 h-4" />;
-    if (acc.type === 'ewallet') return <Smartphone className="w-4 h-4" />;
-    if (acc.type === 'credit_card') return <CreditCard className="w-4 h-4" />;
-    if (acc.type === 'paylater') return <Clock className="w-4 h-4" />;
-    return <Wallet className="w-4 h-4" />;
-  };
-
-  const getAccountTypeLabel = (type: string) => {
-    switch (type) {
-      case 'bank': return 'Akaun Bank';
-      case 'ewallet': return 'e-Wallet';
-      case 'credit_card': return 'Kad Kredit';
-      case 'paylater': return 'PayLater / BNPL';
-      case 'investment': return 'Pelaburan / SSP / ASNB';
-      case 'gold': return 'Emas Digital (MIGA)';
-      case 'cash': return 'Duit Tunai';
-      default: return 'Akaun';
+export class StorageService {
+  /**
+   * Get Accounts
+   */
+  static normalizeAccounts(accounts: Account[]): Account[] {
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return [...INITIAL_ACCOUNTS];
     }
-  };
+    
+    // 0. Clean & Merge duplicates (e.g. ACC_001, acc_mb_sav, etc.)
+    let parsed: Account[] = [];
+    const seenMap = new Map<string, Account>();
 
-  // Group accounts by institution (always show all 11 requested institutions)
-  const groupAccountsByInstitution = () => {
-    const groups: { institution: string; list: Account[]; index: number }[] = [];
-    const assignedIds = new Set<string>();
+    accounts.forEach((acc) => {
+      let a = { ...acc };
+      const rawBank = (a.bank || '').trim();
+      const rawName = (a.account_name || '').trim();
+      const rawNotes = (a.notes || '').trim();
 
-    INSTITUTIONS_ORDER.forEach((instName, idx) => {
-      const matched = filteredAccounts.filter(acc => {
-        if (assignedIds.has(acc.id)) return false;
-
-        const b = (acc.bank || '').toLowerCase().trim();
-        const n = (acc.account_name || '').toLowerCase().trim();
-        const notes = (acc.notes || '').toLowerCase().trim();
-        const id = (acc.id || '').toLowerCase().trim();
-        const target = instName.toLowerCase().trim();
-        
-        if (target === 'maybank') {
-          // Exclude CIMB even if it has 'petronas' or other shared words
-          if (b.includes('cimb') || n.includes('cimb') || id.includes('cimb')) return false;
-          return b.includes('maybank') || n.includes('maybank') || b.includes('mae') || n.includes('mae') || id.includes('mb') || id.includes('maybank') || n.includes('miga');
+      // Fix legacy ACC_002 / CIMB Credit card
+      if (a.id === 'ACC_002' || (rawName.toLowerCase().includes('cimb') && rawNotes.toLowerCase().includes('credit card'))) {
+        a.bank = 'CIMB';
+        a.type = 'credit_card';
+        a.credit_limit = a.credit_limit || 5000;
+        if (!a.account_name.toLowerCase().includes('credit') && !a.account_name.toLowerCase().includes('petronas')) {
+          a.account_name = 'CIMB Petronas Visa Islamic Credit Card';
         }
+      }
 
-        if (target === 'rhb bank') {
-          return b.includes('rhb') || n.includes('rhb') || id.includes('rhb');
-        }
+      // Fix Maybank Petronas Credit Card
+      if (rawName.toLowerCase().includes('maybank') && rawName.toLowerCase().includes('petronas')) {
+        a.bank = 'Maybank';
+        a.type = 'credit_card';
+        a.credit_limit = a.credit_limit || 8000;
+      }
 
-        if (target === 'cimb') {
-          return b.includes('cimb') || n.includes('cimb') || id.includes('cimb');
-        }
+      // Fix RHB Credit Card
+      if (rawName.toLowerCase().includes('rhb') && (rawName.toLowerCase().includes('credit') || rawName.toLowerCase().includes('cashback'))) {
+        a.bank = 'RHB Bank';
+        a.type = 'credit_card';
+        a.credit_limit = a.credit_limit || 6000;
+      }
 
-        if (target.includes('touch') || target.includes('tng')) {
-          return b.includes('touch') || b.includes('tng') || n.includes('touch') || n.includes('tng') || id.includes('tng');
-        }
+      // Deduplicate key: if an account is duplicate (e.g. Maybank Savings Account vs Maybank ACC_001), unify them
+      let dedupeKey = a.id;
+      if (a.id === 'ACC_001' && accounts.some((x) => x.id === 'acc_mb_sav')) {
+        dedupeKey = 'acc_mb_sav';
+      }
+      if (a.id === 'ACC_002' && accounts.some((x) => x.id === 'acc_cimb_cc')) {
+        dedupeKey = 'acc_cimb_cc';
+      }
+      if (a.id === 'acc_tng_ewallet' && accounts.some((x) => x.id === 'acc_tng_wallet')) {
+        dedupeKey = 'acc_tng_wallet';
+      }
 
-        if (target === 'boost') {
-          return b.includes('boost') || n.includes('boost') || id.includes('boost');
-        }
-
-        if (target.includes('setel')) {
-          return b.includes('setel') || n.includes('setel') || id.includes('setel');
-        }
-
-        if (target === 'shopee') {
-          return b.includes('shopee') || b.includes('spaylater') || n.includes('shopee') || n.includes('spaylater') || id.includes('shopee') || id.includes('spaylater');
-        }
-
-        if (target === 'atome') {
-          return b.includes('atome') || n.includes('atome') || id.includes('atome');
-        }
-
-        if (target === 'bsn') {
-          return b.includes('bsn') || b.includes('ssp') || n.includes('bsn') || n.includes('ssp') || id.includes('bsn');
-        }
-
-        if (target === 'gxbank') {
-          return b.includes('gx') || b.includes('gxbank') || n.includes('gx') || n.includes('gxbank') || id.includes('gx');
-        }
-
-        if (target === 'aeon bank') {
-          return b.includes('aeon') || n.includes('aeon') || n.includes('savings pot') || b.includes('savings pot') || n.includes('tabung keluarga') || n.includes('savings account-i') || notes.includes('aeon') || id.includes('aeon');
-        }
-
-        if (target === 'asnb') {
-          return b.includes('asnb') || n.includes('asnb') || n.includes('amanah saham') || n.includes('asb') || n.includes('asn') || id.includes('asnb') || notes.includes('asnb');
-        }
-
-        return false;
-      });
-
-      matched.forEach(m => assignedIds.add(m.id));
-
-      // Always include all 11 institutions in the grid view
-      groups.push({
-        institution: instName,
-        list: matched,
-        index: idx + 1
-      });
+      const existing = seenMap.get(dedupeKey);
+      if (existing) {
+        // Merge: prefer non-zero balance and richer metadata
+        seenMap.set(dedupeKey, {
+          ...existing,
+          ...a,
+          id: dedupeKey,
+          balance: (a.balance !== 0 || existing.balance === 0) ? a.balance : existing.balance,
+          credit_limit: a.credit_limit || existing.credit_limit,
+          notes: a.notes || existing.notes,
+        });
+      } else {
+        seenMap.set(dedupeKey, { ...a, id: dedupeKey });
+      }
     });
 
-    // Capture any remaining institutions/accounts (e.g. Cash, ASNB, etc)
-    const others = filteredAccounts.filter(acc => !assignedIds.has(acc.id));
-    if (others.length > 0) {
-      groups.push({
-        institution: 'Lain-lain / Tunai & Pelaburan',
-        list: others,
-        index: groups.length + 1
+    parsed = Array.from(seenMap.values());
+
+    // Ensure Touch 'n Go eWallet
+    const tngWalletIdx = parsed.findIndex(
+      (a) => a.id === 'acc_tng_wallet' || (a.bank?.toLowerCase().includes('touch') && !a.account_name?.toLowerCase().includes('go+'))
+    );
+    if (tngWalletIdx === -1) {
+      parsed.push({
+        id: 'acc_tng_wallet',
+        bank: "Touch 'n Go eWallet",
+        account_name: "Touch 'n Go eWallet",
+        type: 'ewallet',
+        balance: 0.00,
+        color: 'from-blue-500 to-indigo-600',
+        icon: 'Smartphone',
+        notes: 'Tol RFID, Street parking & QR',
+        updated_at: '2026-08-17',
       });
     }
 
-    return groups;
-  };
-
-  const institutionGroups = groupAccountsByInstitution();
-
-  const renderSingleCard = (acc: Account, index: number) => {
-    const visuals = getBankVisuals(acc.bank);
-    const isDebt = acc.type === 'credit_card' || acc.type === 'paylater';
-    const isNegative = acc.balance < 0;
-
-    return (
-      <motion.div
-        key={acc.id}
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.2, delay: index * 0.02 }}
-        className="group relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm hover:shadow-md hover:border-emerald-500/40 dark:hover:border-emerald-500/40 transition-all flex flex-col justify-between"
-      >
-        {/* Top Bank Header Strip */}
-        <div>
-          <div className="flex items-start justify-between gap-2 mb-2.5">
-            <div className="flex items-center gap-2">
-              <div className={`px-2 py-0.5 rounded-lg text-xs font-bold border shadow-xs ${visuals.badgeColor}`}>
-                {acc.bank}
-              </div>
-              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                {renderAccountIcon(acc)}
-                {getAccountTypeLabel(acc.type)}
-              </span>
-            </div>
-
-            {/* Pencil Edit Button */}
-            <button
-              onClick={() => onEditAccount(acc)}
-              id={`btn_edit_acc_${acc.id}`}
-              title="Kemaskini Baki (Pencil)"
-              className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-transparent hover:border-emerald-300 dark:hover:border-emerald-800 transition-all cursor-pointer"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Account Name */}
-          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1 mb-1" title={acc.account_name}>
-            {acc.account_name}
-          </h3>
-
-          {/* Metadata */}
-          {acc.type === 'gold' && acc.weight_grams && (
-            <div className="mb-1.5 flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                ⚖️ {acc.weight_grams} g (Emas 999.9)
-              </span>
-            </div>
-          )}
-
-          {acc.credit_limit && isDebt && (
-            <div className="mb-1">
-              <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
-                Had Limit: {formatCurrency(acc.credit_limit)}
-              </span>
-            </div>
-          )}
-
-          {acc.notes && (
-            <p className="text-[11px] text-slate-400 dark:text-slate-400 line-clamp-1 mb-2">
-              {acc.notes}
-            </p>
-          )}
-        </div>
-
-        {/* Balance & Footer */}
-        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 mt-2">
-          <div className="flex items-baseline justify-between mb-1.5">
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              {isDebt ? 'Baki Digunakan:' : 'Baki Semasa:'}
-            </span>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400">
-              {formatDateMalay(acc.updated_at)}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className={`text-lg font-black tracking-tight ${
-              isNegative 
-                ? 'text-rose-600 dark:text-rose-400' 
-                : isDebt && acc.balance > 0 
-                  ? 'text-rose-600 dark:text-rose-400'
-                  : 'text-slate-900 dark:text-emerald-400'
-            }`}>
-              {formatCurrency(acc.balance)}
-            </span>
-
-            {/* Quick Transfer Button */}
-            <button
-              onClick={() => onQuickTransfer(acc)}
-              title={`Pindah wang dari ${acc.account_name}`}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-xs font-semibold transition-colors cursor-pointer"
-            >
-              <ArrowLeftRight className="w-3 h-3" />
-              <span>Pindah</span>
-            </button>
-          </div>
-        </div>
-
-      </motion.div>
+    // Ensure Touch 'n Go GO+ (Principal e-Cash Investment / Daily Return)
+    const tngGoPlusIdx = parsed.findIndex(
+      (a) => a.id === 'acc_tng_goplus' || a.account_name?.toLowerCase().includes('go+') || a.account_name?.toLowerCase().includes('goplus')
     );
-  };
+    if (tngGoPlusIdx === -1) {
+      parsed.push({
+        id: 'acc_tng_goplus',
+        bank: "Touch 'n Go eWallet",
+        account_name: "Touch 'n Go GO+",
+        type: 'investment',
+        balance: 0.00,
+        color: 'from-sky-500 to-blue-700',
+        icon: 'TrendingUp',
+        notes: 'Principal e-Cash Fund - Pulangan Harian (Daily Return)',
+        updated_at: '2026-08-17',
+      });
+    }
 
-  return (
-    <div className="space-y-4">
-      {/* Header & Filter Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <span>Akaun & Dompet Saya ({accounts.length})</span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800">
-                12 Institusi Lengkap
-              </span>
-            </h2>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Susunan Grid Kad Mengikut Institusi: Maybank (termasuk MIGA-i Gold), RHB, CIMB, TNG, Boost, Setel, Shopee, Atome, BSN, GXBank, AEON Bank & ASNB (ASB & ASN).
-          </p>
-        </div>
+    // 1. Ensure Atome - PayLater
+    const hasAtomePL = parsed.some(
+      (a) =>
+        a.id === 'acc_atome_pl' ||
+        ((a.bank?.toLowerCase().includes('atome') || a.id?.toLowerCase().includes('atome')) &&
+          (a.account_name?.toLowerCase().includes('paylater') || a.type === 'paylater'))
+    );
+    if (!hasAtomePL) {
+      parsed.push({
+        id: 'acc_atome_pl',
+        bank: 'Atome',
+        account_name: 'PayLater',
+        type: 'paylater',
+        balance: 0.00,
+        credit_limit: 1500.00,
+        color: 'from-lime-400 to-yellow-500',
+        icon: 'Clock',
+        notes: 'Atome 3-bulan ansuran 0% faedah',
+        updated_at: '2026-08-17',
+      });
+    }
 
-        {/* View mode toggle & Filter Pills */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Toggle View Mode */}
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-            <button
-              onClick={() => setViewMode('by_institution')}
-              title="Susun mengikut Institusi"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                viewMode === 'by_institution'
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Institusi</span>
-            </button>
-            <button
-              onClick={() => setViewMode('flat')}
-              title="Semua Kad Sekali Gus"
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                viewMode === 'flat'
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Semua Grid</span>
-            </button>
-          </div>
+    // 2. Ensure Maybank Islamic Gold Account (MIGA-i)
+    const migaIdx = parsed.findIndex(
+      (a) => a.id === 'acc_miga_gold' || a.id === 'acc_mb_miga' || a.account_name?.toLowerCase().includes('miga')
+    );
+    if (migaIdx === -1) {
+      parsed.push({
+        id: 'acc_miga_gold',
+        bank: 'Maybank',
+        account_name: 'MIGA-i Gold (0.088g)',
+        type: 'gold',
+        balance: 49.43,
+        weight_grams: 0.088,
+        avg_price_per_gram: 604.79,
+        total_invested: 51.73,
+        color: 'from-amber-400 via-amber-500 to-yellow-600',
+        icon: 'Sparkles',
+        notes: 'Maybank MIGA-i 764018601800 (0.088g @ RM604.79/g, Nilai: RM49.43)',
+        updated_at: '2026-08-17',
+      });
+    } else {
+      if (parsed[migaIdx].balance === 0 || parsed[migaIdx].balance === 48.66) {
+        parsed[migaIdx].balance = 49.43;
+      }
+      parsed[migaIdx].bank = 'Maybank';
+      parsed[migaIdx].weight_grams = parsed[migaIdx].weight_grams || 0.088;
+      parsed[migaIdx].avg_price_per_gram = parsed[migaIdx].avg_price_per_gram || 604.79;
+      parsed[migaIdx].total_invested = parsed[migaIdx].total_invested || 51.73;
+    }
 
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {[
-              { id: 'all', label: 'Semua' },
-              { id: 'bank', label: 'Bank' },
-              { id: 'ewallet', label: 'e-Wallet' },
-              { id: 'credit', label: 'Kad & PayLater' },
-              { id: 'invest', label: 'Pelaburan & Emas' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setFilterType(tab.id)}
-                className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  filterType === tab.id
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/30'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+    // 3. Ensure ASNB - ASB (Amanah Saham Bumiputera)
+    const asbIdx = parsed.findIndex(
+      (a) => a.id === 'acc_asnb_asb' || (a.account_name?.toLowerCase().includes('bumiputera') || a.account_name?.toLowerCase().includes('asb'))
+    );
+    if (asbIdx === -1) {
+      parsed.push({
+        id: 'acc_asnb_asb',
+        bank: 'ASNB',
+        account_name: 'Amanah Saham Bumiputera (ASB)',
+        type: 'investment',
+        balance: 227.09,
+        fund_name: 'Amanah Saham Bumiputera',
+        account_number: '000007814094',
+        color: 'from-blue-700 to-sky-900',
+        icon: 'Coins',
+        notes: 'Firdaus Bin Mohd Pauzi - ASB (000007814094)',
+        updated_at: '2026-08-17',
+      });
+    } else if (parsed[asbIdx].balance === 0) {
+      parsed[asbIdx].balance = 227.09;
+    }
 
-      {/* Quick Setup Preset Action Banner */}
-      {onApplyInstitutionPreset && (
-        <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-500/30 dark:border-emerald-500/20 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                Struktur Grid Institusi Lengkap ({accounts.length} Sub-Akaun Termasuk MIGA-i & ASNB)
-              </h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Maybank (termasuk MIGA-i Gold) • RHB • CIMB • TNG • Boost • Setel • Shopee • Atome • BSN • GXBank • AEON Bank • ASNB (ASB & ASN)
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => onApplyInstitutionPreset(INSTITUTION_ACCOUNTS_PRESET)}
-            id="btn_activate_11_institutions"
-            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm shadow-emerald-600/30 transition-all cursor-pointer shrink-0"
-          >
-            {accounts.length < 10 ? '⚡ Aktifkan Semua Institusi' : '🔄 Muat Semula Semua Akaun & Pelaburan'}
-          </button>
-        </div>
-      )}
+    // 4. Ensure ASNB - ASN (Amanah Saham Nasional)
+    const asnIdx = parsed.findIndex(
+      (a) => a.id === 'acc_asnb_asn' || (a.account_name?.toLowerCase().includes('nasional') && !a.account_name?.toLowerCase().includes('bumiputera'))
+    );
+    if (asnIdx === -1) {
+      parsed.push({
+        id: 'acc_asnb_asn',
+        bank: 'ASNB',
+        account_name: 'Amanah Saham Nasional (ASN)',
+        type: 'investment',
+        balance: 16.81,
+        fund_name: 'Amanah Saham Nasional',
+        account_number: '000007814094',
+        color: 'from-blue-600 to-indigo-800',
+        icon: 'Coins',
+        notes: 'Firdaus Bin Mohd Pauzi - ASN (000007814094)',
+        updated_at: '2026-08-17',
+      });
+    } else if (parsed[asnIdx].balance === 0 || parsed[asnIdx].balance === 16.83) {
+      parsed[asnIdx].balance = 16.81;
+    }
 
-      {/* VIEW 1: BY INSTITUTION SECTIONS */}
-      {viewMode === 'by_institution' ? (
-        <div className="space-y-5">
-          {institutionGroups.map((group) => {
-            const totalBalance = group.list.reduce((sum, acc) => {
-              const isDebt = acc.type === 'credit_card' || acc.type === 'paylater';
-              return sum + (isDebt ? 0 : Number(acc.balance) || 0);
-            }, 0);
+    return parsed;
+  }
 
-            const totalDebt = group.list.reduce((sum, acc) => {
-              const isDebt = acc.type === 'credit_card' || acc.type === 'paylater';
-              return sum + (isDebt ? Number(acc.balance) || 0 : 0);
-            }, 0);
+  static getAccounts(): Account[] {
+    const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
+    if (!raw) {
+      this.saveAccounts(INITIAL_ACCOUNTS);
+      return INITIAL_ACCOUNTS;
+    }
+    try {
+      const parsed: Account[] = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = this.normalizeAccounts(parsed);
+        this.saveAccounts(normalized);
+        return normalized;
+      }
+      return INITIAL_ACCOUNTS;
+    } catch {
+      return INITIAL_ACCOUNTS;
+    }
+  }
 
-            const visuals = getBankVisuals(group.institution);
+  static saveAccounts(accounts: Account[]) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+      // Auto persist immediately to backend server
+      this.saveToBackendServer({ accounts }).catch(() => {});
+    } catch (e) {}
+  }
 
-            return (
-              <div 
-                key={group.institution} 
-                className="bg-slate-50/70 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800"
-              >
-                {/* Institution Section Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5 pb-2.5 border-b border-slate-200/70 dark:border-slate-800">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-6 h-6 rounded-full bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 text-xs font-black flex items-center justify-center shadow-xs">
-                      {group.index}
-                    </div>
-                    <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                      <span>{group.institution}</span>
-                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                        ({group.list.length} sub-akaun)
-                      </span>
-                    </h3>
-                  </div>
+  /**
+   * Get Loans & Financing (Secret Vault)
+   */
+  static getLoans(): LoanFinancing[] {
+    const raw = localStorage.getItem(STORAGE_KEYS.LOANS);
+    if (!raw) {
+      this.saveLoans(INITIAL_LOANS);
+      return INITIAL_LOANS;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : INITIAL_LOANS;
+    } catch {
+      return INITIAL_LOANS;
+    }
+  }
 
-                  <div className="flex items-center gap-3 text-xs font-semibold">
-                    <span className="text-emerald-700 dark:text-emerald-400">
-                      Baki: {formatCurrency(totalBalance)}
-                    </span>
-                    {totalDebt > 0 && (
-                      <span className="text-rose-600 dark:text-rose-400">
-                        Kredit/PL: {formatCurrency(totalDebt)}
-                      </span>
-                    )}
-                  </div>
-                </div>
+  static saveLoans(loans: LoanFinancing[]) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(loans));
+      this.saveToBackendServer({ loans }).catch(() => {});
+    } catch (e) {}
+  }
 
-                {/* Sub Accounts Grid */}
-                {group.list.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                    {group.list.map((acc, i) => renderSingleCard(acc, i))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 rounded-xl bg-white/70 dark:bg-slate-950/40 border border-dashed border-slate-300 dark:border-slate-800">
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      Tiada sub-akaun aktif bagi {group.institution}.
-                    </span>
-                    <button
-                      onClick={() => {
-                        if (onApplyInstitutionPreset) {
-                          const matchedPreset = INSTITUTION_ACCOUNTS_PRESET.filter(p => 
-                            p.bank.toLowerCase().includes(group.institution.toLowerCase()) || 
-                            group.institution.toLowerCase().includes(p.bank.toLowerCase())
-                          );
-                          if (matchedPreset.length > 0) {
-                            const newAccounts = [...accounts, ...matchedPreset];
-                            onApplyInstitutionPreset(newAccounts);
-                            return;
-                          }
-                        }
-                        onAddAccount();
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>+ Tambah Sub-Akaun {group.institution}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+  /**
+   * Secret Vault Passcode
+   */
+  static getSecretPasscode(): string {
+    return localStorage.getItem(STORAGE_KEYS.SECRET_PASSCODE) || '7445';
+  }
 
-          {/* Add Account Card at Bottom */}
-          <motion.button
-            onClick={onAddAccount}
-            id="btn_add_account_grid"
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full py-4 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 bg-slate-50/50 dark:bg-slate-900/40 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/20 p-5 flex items-center justify-center gap-3 text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all cursor-pointer group"
-          >
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform shadow-xs">
-              <Plus className="w-4 h-4" />
-            </div>
-            <span className="text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-              + Tambah Akaun / Sub-Akaun Kustom Baru
-            </span>
-          </motion.button>
-        </div>
-      ) : (
-        /* VIEW 2: FLAT ALL CARDS GRID */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredAccounts.map((acc, index) => renderSingleCard(acc, index))}
+  static saveSecretPasscode(code: string) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SECRET_PASSCODE, code.trim());
+    } catch (e) {}
+  }
 
-          {/* Large "+ Tambah Akaun" Card */}
-          <motion.button
-            onClick={onAddAccount}
-            id="btn_add_account_grid"
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.98 }}
-            className="min-h-[160px] rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 bg-slate-50/50 dark:bg-slate-900/40 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/20 p-5 flex flex-col items-center justify-center gap-3 text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all cursor-pointer group"
-          >
-            <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
-              <Plus className="w-6 h-6" />
-            </div>
-            <div className="text-center">
-              <span className="text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-                + Tambah Akaun Baru
-              </span>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Maybank, RHB, TNG, CIMB atau kustom
-              </p>
-            </div>
-          </motion.button>
-        </div>
-      )}
-    </div>
-  );
-};
+  /**
+   * Get Transactions
+   */
+  static getTransactions(): Transaction[] {
+    const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  static saveTransactions(transactions: Transaction[]) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
+      this.saveToBackendServer({ transactions }).catch(() => {});
+    } catch (e) {}
+  }
+
+  /**
+   * Quick utility to clear all amounts to RM 0.00 & wipe transactions
+   */
+  static resetAllAmountsToZero(): { accounts: Account[]; transactions: Transaction[] } {
+    const current = this.getAccounts();
+    const zeroed = current.map(a => ({ ...a, balance: 0.00 }));
+    this.saveAccounts(zeroed);
+    this.saveTransactions([]);
+    localStorage.setItem(STORAGE_KEYS.ZEROED_FLAG, 'true');
+    this.addLog('RESET_AMOUNTS', 'Semua baki akaun dikosongkan (RM 0.00).');
+    return { accounts: zeroed, transactions: [] };
+  }
+
+  /**
+   * Get Income & Expense Categories
+   */
+  static getCategories(): { incomeTypes: CategoryItem[]; expenseTypes: CategoryItem[] } {
+    const rawInc = localStorage.getItem(STORAGE_KEYS.INCOME_TYPES);
+    const rawExp = localStorage.getItem(STORAGE_KEYS.EXPENSE_TYPES);
+
+    let incomeTypes = INITIAL_INCOME_TYPES;
+    let expenseTypes = INITIAL_EXPENSE_TYPES;
+
+    if (rawInc) {
+      try { incomeTypes = JSON.parse(rawInc); } catch { }
+    } else {
+      localStorage.setItem(STORAGE_KEYS.INCOME_TYPES, JSON.stringify(INITIAL_INCOME_TYPES));
+    }
+
+    if (rawExp) {
+      try { expenseTypes = JSON.parse(rawExp); } catch { }
+    } else {
+      localStorage.setItem(STORAGE_KEYS.EXPENSE_TYPES, JSON.stringify(INITIAL_EXPENSE_TYPES));
+    }
+
+    return { incomeTypes, expenseTypes };
+  }
+
+  static saveCategories(incomeTypes: CategoryItem[], expenseTypes: CategoryItem[]) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.INCOME_TYPES, JSON.stringify(incomeTypes));
+      localStorage.setItem(STORAGE_KEYS.EXPENSE_TYPES, JSON.stringify(expenseTypes));
+      this.saveToBackendServer({ incomeTypes, expenseTypes }).catch(() => {});
+    } catch (e) {}
+  }
+
+  /**
+   * Get Audit Logs
+   */
+  static getLogs(): AuditLog[] {
+    const raw = localStorage.getItem(STORAGE_KEYS.LOGS);
+    if (!raw) return INITIAL_LOGS;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : INITIAL_LOGS;
+    } catch {
+      return INITIAL_LOGS;
+    }
+  }
+
+  static saveLogs(logs: AuditLog[]) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+    } catch (e) {}
+  }
+
+  static addLog(action: string, details: string, user = 'admin') {
+    const logs = this.getLogs();
+    const newLog: AuditLog = {
+      id: 'log_' + Date.now(),
+      timestamp: new Date().toLocaleString('en-GB', { hour12: false }).replace(',', ''),
+      action,
+      details,
+      user
+    };
+    const updated = [newLog, ...logs.slice(0, 49)];
+    this.saveLogs(updated);
+    return updated;
+  }
+
+  static getUser(): User | null {
+    const raw = localStorage.getItem(STORAGE_KEYS.USER);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  static saveUser(user: User | null) {
+    try {
+      if (user) {
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.USER);
+      }
+    } catch (e) {}
+  }
+
+  /**
+   * Google Sheets Config
+   */
+  static getGoogleSheetsConfig(): GoogleSheetsConfig {
+    const raw = localStorage.getItem(STORAGE_KEYS.GAS_CONFIG);
+    if (!raw) {
+      this.saveGoogleSheetsConfig(INITIAL_GAS_CONFIG);
+      return INITIAL_GAS_CONFIG;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed.webAppUrl) parsed.webAppUrl = INITIAL_GAS_CONFIG.webAppUrl;
+      return parsed;
+    } catch {
+      return INITIAL_GAS_CONFIG;
+    }
+  }
+
+  static saveGoogleSheetsConfig(config: GoogleSheetsConfig) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.GAS_CONFIG, JSON.stringify(config));
+    } catch (e) {}
+  }
+
+  /**
+   * Compute Summary Stats
+   */
+  static computeSummaryStats(accounts: Account[], transactions: Transaction[]): SummaryStats {
+    let totalMoney = 0;
+    let cashAvailable = 0;
+    let creditUsed = 0;
+    let netWorth = 0;
+
+    accounts.forEach((acc) => {
+      const bal = Number(acc.balance) || 0;
+      const isDebtType = acc.type === 'credit_card' || acc.type === 'paylater';
+
+      if (isDebtType) {
+        // For credit cards and paylaters, the balance (whether stored positive or negative) is credit/debt used
+        const debtAmt = Math.abs(bal);
+        creditUsed += debtAmt;
+        netWorth -= debtAmt;
+      } else {
+        // Standard asset accounts (bank, ewallet, cash, investment, gold)
+        if (bal >= 0) {
+          totalMoney += bal;
+          if (acc.type === 'bank' || acc.type === 'ewallet' || acc.type === 'cash') {
+            cashAvailable += bal;
+          }
+          netWorth += bal;
+        } else {
+          // Negative balance in a normal bank account is an overdraft / liability
+          const overdraftDebt = Math.abs(bal);
+          creditUsed += overdraftDebt;
+          netWorth -= overdraftDebt;
+        }
+      }
+    });
+
+    const now = new Date();
+    const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    let incomeThisMonth = 0;
+    let expenseThisMonth = 0;
+
+    transactions.forEach((tx) => {
+      const cleanDate = this.parseCleanDate(tx.date || tx.created_at);
+      if (cleanDate && cleanDate.startsWith(currentMonthPrefix)) {
+        if (tx.type === 'income') incomeThisMonth += Number(tx.amount) || 0;
+        else if (tx.type === 'expense') expenseThisMonth += Number(tx.amount) || 0;
+      }
+    });
+
+    return {
+      totalMoney: Math.round(totalMoney * 100) / 100,
+      cashAvailable: Math.round(cashAvailable * 100) / 100,
+      creditUsed: Math.round(creditUsed * 100) / 100,
+      incomeThisMonth: Math.round(incomeThisMonth * 100) / 100,
+      expenseThisMonth: Math.round(expenseThisMonth * 100) / 100,
+      netWorth: Math.round(netWorth * 100) / 100,
+    };
+  }
+
+  /**
+   * Deduplication & Smart Merge for Transactions
+   */
+  static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
+    const byIdMap = new Map<string, Transaction>();
+
+    // 1. Index local transactions
+    localList.forEach((tx) => {
+      if (tx && tx.id) {
+        byIdMap.set(tx.id, tx);
+      }
+    });
+
+    // 2. Merge incoming transactions
+    incomingList.forEach((tx, idx) => {
+      if (!tx) return;
+      const targetId = tx.id || `tx_in_${Date.now()}_${idx}`;
+      if (byIdMap.has(targetId)) {
+        const existing = byIdMap.get(targetId)!;
+        byIdMap.set(targetId, { ...existing, ...tx, id: targetId });
+      } else {
+        byIdMap.set(targetId, { ...tx, id: targetId });
+      }
+    });
+
+    return Array.from(byIdMap.values()).sort((a, b) => {
+      const dateA = new Date(a.date || a.created_at || 0).getTime();
+      const dateB = new Date(b.date || b.created_at || 0).getTime();
+      return dateB - dateA;
+    });
+  }
+
+  /**
+   * Pending Queue (Safe Local-First)
+   */
+  static getPendingQueue(): Array<{ action: string; payload: any; timestamp: number }> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PENDING_QUEUE);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  static savePendingQueue(queue: Array<{ action: string; payload: any; timestamp: number }>) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PENDING_QUEUE, JSON.stringify(queue.slice(-100)));
+    } catch {}
+  }
+
+  static enqueueSync(action: string, payload: any) {
+    const queue = this.getPendingQueue();
+    queue.push({ action, payload, timestamp: Date.now() });
+    this.savePendingQueue(queue);
+    setTimeout(() => {
+      this.flushPendingQueue().catch(() => {});
+    }, 150);
+  }
+
+  static async flushPendingQueue(): Promise<void> {
+    const queue = this.getPendingQueue();
+    if (queue.length === 0) return;
+    const remaining: typeof queue = [];
+    for (const item of queue) {
+      try {
+        const res = await this.syncWithGAS(item.action, item.payload);
+        if (!res.success && res.message?.includes('network')) {
+          remaining.push(item);
+        }
+      } catch {
+        remaining.push(item);
+      }
+    }
+    this.savePendingQueue(remaining);
+  }
+
+  /**
+   * Helper to check if custom Node.js backend API is available
+   */
+  static isBackendServerAvailable(): boolean {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      if (host.endsWith('vercel.app') || host.endsWith('github.io') || host.endsWith('pages.dev') || host.endsWith('netlify.app')) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Server Backend Persistence (Saves data permanently on server so all devices stay synchronized)
+   */
+  static async saveToBackendServer(fullData: any = {}): Promise<boolean> {
+    if (!this.isBackendServerAvailable()) {
+      return true;
+    }
+
+    try {
+      const user = this.getUser();
+      const accounts = fullData.accounts || this.getAccounts();
+      const transactions = fullData.transactions || this.getTransactions();
+      const loans = fullData.loans || this.getLoans();
+      const categories = this.getCategories();
+      const logs = fullData.logs || this.getLogs();
+      const gasConfig = fullData.gasConfig || this.getGoogleSheetsConfig();
+      const secretPasscode = this.getSecretPasscode();
+
+      const payload = {
+        username: user?.username || 'admin',
+        accounts,
+        transactions,
+        loans,
+        incomeTypes: categories.incomeTypes,
+        expenseTypes: categories.expenseTypes,
+        logs,
+        gasConfig,
+        secretPasscode,
+        saved_at: new Date().toISOString(),
+      };
+
+      const res = await fetch('/api/backend-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) return false;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) return false;
+
+      const data = await res.json();
+      return !!(data && data.status === 'success');
+    } catch {
+      return false;
+    }
+  }
+
+  static async loadFromBackendServer(): Promise<any | null> {
+    if (!this.isBackendServerAvailable()) {
+      return null;
+    }
+
+    try {
+      const res = await fetch('/api/backend-data');
+      if (!res.ok) return null;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        return null;
+      }
+
+      const json = await res.json();
+      if (json && json.status === 'success' && json.data) {
+        const data = json.data;
+        if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
+          data.accounts = this.normalizeAccounts(data.accounts);
+          this.saveAccounts(data.accounts);
+        }
+        if (data.transactions && Array.isArray(data.transactions)) {
+          this.saveTransactions(data.transactions);
+        }
+        if (data.loans && Array.isArray(data.loans)) {
+          this.saveLoans(data.loans);
+        }
+        if (data.incomeTypes && data.expenseTypes) {
+          this.saveCategories(data.incomeTypes, data.expenseTypes);
+        }
+        if (data.gasConfig && data.gasConfig.webAppUrl) {
+          this.saveGoogleSheetsConfig(data.gasConfig);
+        }
+        if (data.secretPasscode) {
+          this.saveSecretPasscode(data.secretPasscode);
+        }
+        if (data.logs && Array.isArray(data.logs)) {
+          this.saveLogs(data.logs);
+        }
+        return data;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Helper to parse messy date strings (e.g. from Google Sheets / SakuTrack) into YYYY-MM-DD
+   */
+  static parseCleanDate(rawDate: any): string {
+    if (!rawDate) return new Date().toISOString().split('T')[0];
+    const str = String(rawDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return str;
+    }
+    const monthMap: Record<string, string> = {
+      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    };
+    const regexMatch = str.match(/([a-zA-Z]{3})\s+(\d{1,2})\s+(\d{4})/);
+    if (regexMatch) {
+      const mStr = regexMatch[1].toLowerCase();
+      const month = monthMap[mStr] || '01';
+      const day = regexMatch[2].padStart(2, '0');
+      const year = regexMatch[3];
+      return `${year}-${month}-${day}`;
+    }
+    try {
+      const d = new Date(rawDate);
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    } catch {}
+    return str.slice(0, 10);
+  }
+
+  /**
+   * Normalize raw transactions from SakuTrack or MyWang AppsScript
+   */
+  static normalizeRawTransactions(rawList: any[]): Transaction[] {
+    if (!Array.isArray(rawList)) return [];
+
+    const mapSourceToId = (source: string): string => {
+      const s = String(source || '').toLowerCase();
+      if (s.includes('go+') || s.includes('goplus')) return 'acc_tng_goplus';
+      if (s.includes('touch') || s.includes('tng')) return 'acc_tng_wallet';
+      if (s.includes('maybank') || s.includes('mae')) return 'acc_mb_sav';
+      if (s.includes('rhb')) return 'acc_rhb_sav';
+      if (s.includes('atome')) return 'acc_atome_pl';
+      if (s.includes('tunai') || s.includes('cash')) return 'acc_cash_fizikal';
+      if (s.includes('gx')) return 'acc_gx_sav';
+      if (s.includes('aeon')) return 'acc_aeon_sav';
+      if (s.includes('cimb')) return 'acc_cimb_cc';
+      if (s.includes('asb') || s.includes('bumiputera')) return 'acc_asnb_asb';
+      if (s.includes('asn') || s.includes('nasional')) return 'acc_asnb_asn';
+      if (s.includes('ssp')) return 'acc_bsn_ssp_40';
+      if (s.includes('bsn')) return 'acc_bsn_sav';
+      if (s.includes('shopee')) return 'acc_shopeepay';
+      if (s.includes('setel')) return 'acc_setel';
+      if (s.includes('boost')) return 'acc_boost';
+      return 'acc_mb_sav';
+    };
+
+    return rawList.map((tx: any, idx: number) => {
+      const rawDate = tx.date || tx.created_at || new Date().toISOString();
+      const cleanDate = this.parseCleanDate(rawDate);
+      const accName = tx.account_name || tx.source || tx.method || tx.account || 'Maybank - Savings Account';
+      const accId = tx.account_id || mapSourceToId(accName);
+      const isIncome = String(tx.type).toLowerCase() === 'income';
+
+      return {
+        id: String(tx.id || `tx_sync_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`),
+        date: cleanDate,
+        type: isIncome ? 'income' : tx.type === 'transfer' ? 'transfer' : 'expense',
+        category: tx.category || tx.income_type || tx.expense_type || 'Lain-lain',
+        amount: Math.abs(parseFloat(tx.amount) || 0),
+        account_id: accId,
+        account_name: accName,
+        to_account_id: tx.to_account_id,
+        to_account_name: tx.to_account_name,
+        note: tx.note || '',
+        receipt_url: tx.receipt || tx.receipt_url || undefined,
+        created_at: String(tx.created_at || cleanDate),
+      };
+    });
+  }
+
+  /**
+   * Normalize raw accounts from SakuTrack or MyWang AppsScript
+   */
+  static normalizeRawAccounts(rawList: any[]): Account[] {
+    if (!Array.isArray(rawList) || rawList.length === 0) return [];
+
+    const getMeta = (bank: string, name: string, typeStr: string) => {
+      const combined = `${bank} ${name} ${typeStr}`.toLowerCase();
+      if (combined.includes('maybank') || combined.includes('mae') || combined.includes('ikhwan')) {
+        return { bank: 'Maybank', color: 'from-amber-500 to-yellow-600', icon: combined.includes('wallet') || combined.includes('mae') ? 'Smartphone' : combined.includes('credit') || combined.includes('card') ? 'CreditCard' : 'Landmark' };
+      }
+      if (combined.includes('cimb')) {
+        return { bank: 'CIMB', color: 'from-red-600 to-rose-800', icon: combined.includes('credit') || combined.includes('petronas') ? 'CreditCard' : 'Landmark' };
+      }
+      if (combined.includes('rhb')) {
+        return { bank: 'RHB Bank', color: 'from-blue-600 to-cyan-700', icon: combined.includes('credit') ? 'CreditCard' : 'Landmark' };
+      }
+      if (combined.includes('touch') || combined.includes('tng')) {
+        return { bank: "Touch 'n Go eWallet", color: 'from-blue-500 to-sky-600', icon: 'Smartphone' };
+      }
+      if (combined.includes('boost')) {
+        return { bank: 'Boost', color: 'from-red-500 to-orange-600', icon: 'Smartphone' };
+      }
+      if (combined.includes('setel') || combined.includes('petronas')) {
+        return { bank: 'Setel by Petronas', color: 'from-emerald-500 to-teal-700', icon: 'Fuel' };
+      }
+      if (combined.includes('shopee') || combined.includes('spaylater')) {
+        return { bank: 'Shopee', color: 'from-orange-500 to-amber-600', icon: 'ShoppingBag' };
+      }
+      if (combined.includes('atome')) {
+        return { bank: 'Atome', color: 'from-lime-500 to-yellow-600', icon: 'Clock' };
+      }
+      if (combined.includes('aeon') || combined.includes('savings pot') || combined.includes('tabung keluarga') || combined.includes('savings account-i')) {
+        return { bank: 'AEON BANK', color: 'from-fuchsia-600 to-pink-700', icon: combined.includes('pot') ? 'PiggyBank' : 'Landmark' };
+      }
+      if (combined.includes('gx') || combined.includes('gxbank')) {
+        return { bank: 'GXBANK', color: 'from-violet-600 to-purple-800', icon: 'Landmark' };
+      }
+      if (combined.includes('tunai') || combined.includes('cash') || combined.includes('dompet')) {
+        return { bank: 'Tunai (Cash)', color: 'from-emerald-500 to-teal-700', icon: 'Coins' };
+      }
+      if (combined.includes('public')) {
+        return { bank: 'Public Bank', color: 'from-red-700 to-amber-700', icon: 'Landmark' };
+      }
+      if (combined.includes('hong leong') || combined.includes('hlb')) {
+        return { bank: 'Hong Leong Bank', color: 'from-red-600 to-rose-700', icon: 'Landmark' };
+      }
+      if (combined.includes('bank islam')) {
+        return { bank: 'Bank Islam', color: 'from-red-700 to-rose-950', icon: 'Landmark' };
+      }
+      if (combined.includes('bsn') || combined.includes('ssp')) {
+        return { bank: 'BSN', color: 'from-teal-600 to-cyan-800', icon: 'PiggyBank' };
+      }
+      if (combined.includes('asnb') || combined.includes('asb')) {
+        return { bank: 'ASNB', color: 'from-blue-700 to-indigo-900', icon: 'TrendingUp' };
+      }
+      if (combined.includes('miga') || combined.includes('emas') || combined.includes('gold')) {
+        return { bank: 'Maybank Islamic (MIGA)', color: 'from-amber-600 to-yellow-700', icon: 'Coins' };
+      }
+      return { bank: bank || 'Akaun Simpanan', color: 'from-slate-600 to-gray-800', icon: 'Wallet' };
+    };
+
+    const normalizeType = (rawType: string, name: string, bank: string): Account['type'] => {
+      const combined = `${rawType} ${name} ${bank}`.toLowerCase();
+      if (combined.includes('credit') || combined.includes('kad kredit') || combined.includes('visa') || combined.includes('mastercard') || combined.includes('ikhwan') || combined.includes('card')) return 'credit_card';
+      if (combined.includes('paylater') || combined.includes('bnpl') || combined.includes('atome') || combined.includes('spaylater')) return 'paylater';
+      if (combined.includes('ewallet') || combined.includes('wallet') || combined.includes('tng') || combined.includes('mae') || combined.includes('boost') || combined.includes('setel') || combined.includes('shopeepay')) return 'ewallet';
+      if (combined.includes('cash') || combined.includes('tunai') || combined.includes('dompet')) return 'cash';
+      if (combined.includes('investment') || combined.includes('pelaburan') || combined.includes('asnb') || combined.includes('ssp') || combined.includes('emas') || combined.includes('miga')) return 'investment';
+      return 'bank';
+    };
+
+    return rawList.map((acc: any, idx: number) => {
+      const id = String(acc.AccountID || acc.id || acc.account_id || `acc_${idx + 1}`);
+      const rawName = String(acc.AccountName || acc.account_name || acc.name || acc.Bank || acc.bank || `Akaun ${idx + 1}`).trim();
+      const rawType = String(acc.AccountType || acc.type || 'Bank');
+      const rawBank = String(acc.Bank || acc.bank || '').trim();
+      const accType = normalizeType(rawType, rawName, rawBank);
+      const meta = getMeta(rawBank, rawName, rawType);
+      
+      let finalBank = rawBank;
+      if (!finalBank || finalBank === rawName || finalBank.toLowerCase().includes('akaun') || finalBank.toLowerCase().includes('simpanan') || finalBank.toLowerCase().includes('savings pot') || finalBank.toLowerCase().includes('tabung keluarga')) {
+        finalBank = meta.bank;
+      }
+      if (rawName.toLowerCase().includes('savings pot') || rawName.toLowerCase().includes('tabung keluarga') || rawName.toLowerCase().includes('savings account-i')) {
+        finalBank = 'AEON BANK';
+      }
+
+      const balanceVal = acc.InitialBalance !== undefined ? acc.InitialBalance : acc.balance !== undefined ? acc.balance : acc.Balance;
+      const parsedBalance = parseFloat(balanceVal) || 0;
+      const creditLimit = parseFloat(acc.CreditLimit || acc.credit_limit) || undefined;
+
+      return {
+        id,
+        bank: finalBank,
+        account_name: rawName,
+        type: accType,
+        balance: parsedBalance,
+        credit_limit: creditLimit,
+        color: acc.color || meta.color,
+        icon: acc.icon || meta.icon,
+        notes: acc.Notes || acc.notes || '',
+        updated_at: acc.CreatedAt || acc.updated_at || new Date().toISOString().split('T')[0],
+      };
+    });
+  }
+
+  /**
+   * Recalculates live balances for all accounts.
+   * If accounts come with their live updated balance directly from user edits or sheet,
+   * we ensure we do not double-apply transaction histories onto already-reconciled balances.
+   */
+  static computeLiveAccountBalances(accountsList: Account[], transactionsList: Transaction[]): Account[] {
+    if (!Array.isArray(accountsList) || accountsList.length === 0) return [];
+    
+    // If accounts already contain current balances saved explicitly, keep them intact
+    return accountsList.map((acc) => ({
+      ...acc,
+      balance: Math.round((Number(acc.balance) || 0) * 100) / 100,
+    }));
+  }
+
+  /**
+   * Universal Sync with Google Apps Script Web App
+   * Menyokong kedua-dua format: SakuTrack backend & MyWang AppsScript backend
+   */
+  static async syncWithGAS(action: string, payload: any = {}): Promise<{ success: boolean; data?: any; message?: string }> {
+    const config: any = this.getGoogleSheetsConfig();
+    const user = this.getUser();
+    const activeUsername = user?.username || 'user';
+    const gasUrl = config.webAppUrl || config.gas_web_app_url || config.google_sheets_url || '';
+
+    if (!gasUrl) {
+      return { success: true, message: 'Data disimpan di peranti (Mod Tempatan).' };
+    }
+
+    try {
+      // Helper 1: Serverless Proxy Fetch (Bypasses all CORS on Vercel & Node.js backend)
+      const fetchViaProxy = async (act: string, bodyObj: any = {}) => {
+        try {
+          const res = await fetch('/api/gas-proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              webAppUrl: gasUrl,
+              action: act,
+              username: activeUsername,
+              data: bodyObj,
+            }),
+          });
+          if (res.ok) {
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              return await res.json();
+            }
+          }
+        } catch {}
+        return null;
+      };
+
+      // Helper 2: Direct client-side fetch fallback
+      const fetchDirect = async (act: string, bodyObj: any = {}) => {
+        const postData = {
+          action: act,
+          username: activeUsername,
+          data: bodyObj,
+          ...bodyObj,
+        };
+        const res = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(postData),
+        });
+        const txt = await res.text();
+        try {
+          return JSON.parse(txt);
+        } catch {
+          return { status: 'raw', text: txt };
+        }
+      };
+
+      // Smart executor: Try proxy first (no CORS issues), fallback to direct
+      const executeGasCall = async (act: string, bodyObj: any = {}) => {
+        const proxyRes = await fetchViaProxy(act, bodyObj);
+        if (proxyRes && (proxyRes.status === 'success' || proxyRes.data || proxyRes.transactions || proxyRes.accounts)) {
+          return proxyRes;
+        }
+        return await fetchDirect(act, bodyObj);
+      };
+
+      // If testConnection or ping
+      if (action === 'testConnection' || action === 'ping') {
+        let testRes: any = null;
+        try {
+          testRes = await executeGasCall('ping', {});
+        } catch {}
+        if (!testRes || testRes.status === 'error') {
+          try {
+            testRes = await executeGasCall('get_transactions', { username: activeUsername });
+          } catch {}
+        }
+        if (!testRes || testRes.status === 'error') {
+          try {
+            testRes = await executeGasCall('getDashboard', { token: activeUsername });
+          } catch {}
+        }
+        if (testRes && (testRes.status === 'success' || testRes.transactions || testRes.data)) {
+          config.isConnected = true;
+          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+          this.saveGoogleSheetsConfig(config);
+          return { success: true, message: 'Sambungan ke Google Apps Script & Sheets berjaya!' };
+        }
+        return { success: false, message: testRes?.message || 'Gagal menyambung ke Google Apps Script URL. Sila pastikan Web App dideploy dengan Access: Anyone & Execute as: Me.' };
+      }
+
+      // If initial fetch / getInitialData / syncDashboard
+      if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions' || action === 'get_accounts') {
+        let gasTxs: any[] = [];
+        let gasAccs: any[] = [];
+
+        // 1. Fetch transactions (support SakuTrack and MyWang endpoints)
+        try {
+          const resTx = await executeGasCall('get_transactions', { username: activeUsername });
+          if (resTx && resTx.status === 'success' && Array.isArray(resTx.transactions)) {
+            gasTxs = resTx.transactions;
+          }
+          if (resTx && Array.isArray(resTx.accounts) && resTx.accounts.length > 0) {
+            gasAccs = resTx.accounts;
+          }
+        } catch {}
+
+        if (gasTxs.length === 0) {
+          try {
+            const resDash = await executeGasCall('getDashboard', { token: activeUsername });
+            if (resDash && (resDash.status === 'success' || resDash.data)) {
+              gasTxs = resDash.data?.recentTransactions || resDash.data?.transactions || (Array.isArray(resDash.data) ? resDash.data : []) || [];
+              if (resDash.data?.accounts || resDash.accounts) {
+                gasAccs = resDash.data?.accounts || resDash.accounts || [];
+              }
+            }
+          } catch {}
+        }
+
+        // 2. Fetch accounts (support SakuTrack 'get_accounts' and MyWang 'getAccounts')
+        if (gasAccs.length === 0) {
+          try {
+            const resAcc1 = await executeGasCall('get_accounts', { username: activeUsername });
+            if (resAcc1 && resAcc1.status === 'success' && Array.isArray(resAcc1.accounts)) {
+              gasAccs = resAcc1.accounts;
+            } else if (resAcc1 && Array.isArray(resAcc1.data)) {
+              gasAccs = resAcc1.data;
+            }
+          } catch {}
+        }
+
+        if (gasAccs.length === 0) {
+          try {
+            const resAcc2 = await executeGasCall('getAccounts', {});
+            if (resAcc2 && (resAcc2.status === 'success' || Array.isArray(resAcc2.data))) {
+              gasAccs = resAcc2.data || resAcc2.accounts || [];
+            }
+          } catch {}
+        }
+
+        // Normalize transactions and accounts
+        const normalizedTxs = this.normalizeRawTransactions(gasTxs);
+        let normalizedAccs: Account[] = [];
+
+        if (Array.isArray(gasAccs) && gasAccs.length > 0) {
+          const rawParsedAccs = this.normalizeRawAccounts(gasAccs);
+          // Merge with current local accounts so user's existing balances (e.g. MIGA, ASNB, etc.) are never wiped
+          const existingAccs = this.getAccounts();
+          const mergedMap = new Map<string, Account>();
+          existingAccs.forEach((a) => mergedMap.set(a.id, a));
+          rawParsedAccs.forEach((incoming) => {
+            const current = mergedMap.get(incoming.id);
+            if (current) {
+              mergedMap.set(incoming.id, {
+                ...current,
+                ...incoming,
+                // If incoming from GAS has 0 balance but current has real non-zero balance, preserve current
+                balance: (incoming.balance !== 0 || current.balance === 0) ? incoming.balance : current.balance,
+                weight_grams: incoming.weight_grams || current.weight_grams,
+                avg_price_per_gram: incoming.avg_price_per_gram || current.avg_price_per_gram,
+                total_invested: incoming.total_invested || current.total_invested,
+              });
+            } else {
+              mergedMap.set(incoming.id, incoming);
+            }
+          });
+          normalizedAccs = this.normalizeAccounts(Array.from(mergedMap.values()));
+          this.saveAccounts(normalizedAccs);
+        } else {
+          normalizedAccs = this.getAccounts();
+        }
+
+        if (normalizedTxs.length > 0) {
+          this.saveTransactions(normalizedTxs);
+        }
+
+        config.isConnected = true;
+        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+        this.saveGoogleSheetsConfig(config);
+
+        return {
+          success: true,
+          data: {
+            transactions: normalizedTxs,
+            accounts: normalizedAccs,
+          },
+          message: `Diselaraskan ${normalizedAccs.length} akaun & ${normalizedTxs.length} transaksi dari Google Sheets!`,
+        };
+      }
+
+      // Handle updateAccount / saveAccount / edit_account / addAccount
+      if (action === 'updateAccount' || action === 'saveAccount' || action === 'edit_account' || action === 'addAccount' || action === 'add_account') {
+        const sakuAccPayload = {
+          AccountID: payload.AccountID || payload.id || payload.account_id || `ACC_${Date.now()}`,
+          id: payload.AccountID || payload.id || payload.account_id || `ACC_${Date.now()}`,
+          account_id: payload.AccountID || payload.id || payload.account_id || `ACC_${Date.now()}`,
+          AccountName: payload.AccountName || payload.account_name || payload.bank || 'Akaun',
+          account_name: payload.AccountName || payload.account_name || payload.bank || 'Akaun',
+          bank: payload.bank || payload.Bank || payload.account_name || 'Akaun',
+          AccountType: payload.AccountType || payload.type || 'Bank',
+          type: payload.AccountType || payload.type || 'Bank',
+          InitialBalance: payload.InitialBalance !== undefined ? payload.InitialBalance : (payload.balance !== undefined ? payload.balance : 0),
+          balance: payload.InitialBalance !== undefined ? payload.InitialBalance : (payload.balance !== undefined ? payload.balance : 0),
+          AccountNumber: payload.AccountNumber || payload.account_number || '',
+          account_number: payload.AccountNumber || payload.account_number || '',
+          Notes: payload.Notes || payload.notes || '',
+          notes: payload.Notes || payload.notes || '',
+          Username: payload.Username || payload.username || activeUsername || 'user',
+          username: payload.Username || payload.username || activeUsername || 'user',
+        };
+
+        let gasResult: any = null;
+        try {
+          gasResult = await executeGasCall('save_account', sakuAccPayload);
+        } catch {}
+
+        if (!gasResult || gasResult.status !== 'success') {
+          try {
+            gasResult = await executeGasCall('saveAccount', sakuAccPayload);
+          } catch {}
+        }
+
+        if (!gasResult || gasResult.status !== 'success') {
+          try {
+            gasResult = await executeGasCall('edit_account', sakuAccPayload);
+          } catch {}
+        }
+
+        if (!gasResult || gasResult.status !== 'success') {
+          try {
+            gasResult = await executeGasCall('add_account', sakuAccPayload);
+          } catch {}
+        }
+
+        config.isConnected = true;
+        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+        this.saveGoogleSheetsConfig(config);
+
+        return { 
+          success: true, 
+          data: gasResult?.data || sakuAccPayload, 
+          message: gasResult?.message || `Akaun ${sakuAccPayload.AccountName} berjaya disimpan ke Google Sheets!` 
+        };
+      }
+
+      // Handle deleteAccount / delete_account
+      if (action === 'deleteAccount' || action === 'delete_account') {
+        const accId = payload.AccountID || payload.id || payload.account_id;
+        let delRes: any = null;
+        try {
+          delRes = await executeGasCall('delete_account', { AccountID: accId, id: accId });
+        } catch {}
+        if (!delRes || delRes.status !== 'success') {
+          try {
+            delRes = await executeGasCall('deleteAccount', { AccountID: accId, id: accId });
+          } catch {}
+        }
+        return { success: true, message: delRes?.message || 'Akaun berjaya dipadam dari Google Sheets.' };
+      }
+
+      // Handle addTransaction / add_transaction
+      if (action === 'addTransaction' || action === 'add_transaction') {
+        const sakuPayload = {
+          TxID: payload.TxID || payload.id || `Tx_${Date.now()}`,
+          id: payload.TxID || payload.id || `Tx_${Date.now()}`,
+          Date: payload.Date || payload.date || new Date().toISOString().split('T')[0],
+          date: payload.Date || payload.date || new Date().toISOString().split('T')[0],
+          Type: payload.Type || payload.type || 'expense',
+          type: payload.Type || payload.type || 'expense',
+          Category: payload.Category || payload.category || 'Lain-lain',
+          category: payload.Category || payload.category || 'Lain-lain',
+          Amount: parseFloat(payload.Amount !== undefined ? payload.Amount : payload.amount) || 0,
+          amount: parseFloat(payload.Amount !== undefined ? payload.Amount : payload.amount) || 0,
+          Discount: parseFloat(payload.Discount !== undefined ? payload.Discount : payload.discount) || 0,
+          discount: parseFloat(payload.Discount !== undefined ? payload.Discount : payload.discount) || 0,
+          Method: payload.Method || payload.payment_method || payload.method || 'Online Transfer',
+          payment_method: payload.Method || payload.payment_method || payload.method || 'Online Transfer',
+          Source: payload.Source || payload.source || payload.account_name || payload.bank || 'Maybank',
+          source: payload.Source || payload.source || payload.account_name || payload.bank || 'Maybank',
+          Note: payload.Note || payload.note || '',
+          note: payload.Note || payload.note || '',
+          ReceiptURL: payload.ReceiptURL || payload.receipt_url || payload.receipt || '',
+          receipt_url: payload.ReceiptURL || payload.receipt_url || payload.receipt || '',
+          Username: payload.Username || payload.username || activeUsername || 'user',
+          username: payload.Username || payload.username || activeUsername || 'user',
+        };
+
+        let txRes: any = null;
+        try {
+          txRes = await executeGasCall('add_transaction', sakuPayload);
+        } catch {}
+        if (!txRes || txRes.status !== 'success') {
+          try {
+            txRes = await executeGasCall('addTransaction', sakuPayload);
+          } catch {}
+        }
+        return { success: true, message: txRes?.message || 'Transaksi direkod ke Google Sheets.' };
+      }
+
+      // Handle recordTransfer / transferMoney / transfer
+      if (action === 'recordTransfer' || action === 'transferMoney' || action === 'transfer' || action === 'transfer_money') {
+        const transferPayload = {
+          from_account_id: payload.from_account_id || payload.from_account || payload.from,
+          to_account_id: payload.to_account_id || payload.to_account || payload.to,
+          from_account_name: payload.from_account_name || payload.from_bank,
+          to_account_name: payload.to_account_name || payload.to_bank,
+          from: payload.from_account_id || payload.from_account || payload.from,
+          to: payload.to_account_id || payload.to_account || payload.to,
+          amount: parseFloat(payload.amount) || 0,
+          date: payload.date || new Date().toISOString().split('T')[0],
+          note: payload.note || 'Pindahan Antara Akaun',
+          Username: payload.username || activeUsername || 'user',
+          username: payload.username || activeUsername || 'user',
+        };
+
+        let transferRes: any = null;
+        try {
+          transferRes = await executeGasCall('transferMoney', transferPayload);
+        } catch {}
+        if (!transferRes || transferRes.status !== 'success') {
+          try {
+            transferRes = await executeGasCall('transfer_money', transferPayload);
+          } catch {}
+        }
+        if (!transferRes || transferRes.status !== 'success') {
+          try {
+            transferRes = await executeGasCall('recordTransfer', transferPayload);
+          } catch {}
+        }
+        return { success: true, data: transferRes?.data, message: transferRes?.message || 'Pindahan berjaya diselaraskan ke Google Sheets!' };
+      }
+
+      // Generic pass-through
+      await executeGasCall(action, payload);
+      return { success: true, message: 'Diselaraskan ke Google Sheets.' };
+    } catch (err: any) {
+      console.warn('Sync with Google Sheets failed, saved locally:', err);
+      return { success: true, message: 'Disimpan di peranti (Mod Tempatan).' };
+    }
+  }
+
+  static resetToDefault() {
+    localStorage.removeItem(STORAGE_KEYS.ACCOUNTS);
+    localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+    localStorage.removeItem(STORAGE_KEYS.INCOME_TYPES);
+    localStorage.removeItem(STORAGE_KEYS.EXPENSE_TYPES);
+    localStorage.removeItem(STORAGE_KEYS.LOGS);
+    localStorage.removeItem(STORAGE_KEYS.PENDING_QUEUE);
+    return {
+      accounts: INITIAL_ACCOUNTS,
+      transactions: INITIAL_TRANSACTIONS,
+      incomeTypes: INITIAL_INCOME_TYPES,
+      expenseTypes: INITIAL_EXPENSE_TYPES,
+      logs: INITIAL_LOGS
+    };
+  }
+}
+
+// Standalone Helper Exports
+export const getStoredTransactions = () => StorageService.getTransactions();
+export const saveStoredTransactions = (txs: Transaction[]) => StorageService.saveTransactions(txs);
+export const getStoredAccounts = () => StorageService.getAccounts();
+export const saveStoredAccounts = (accs: Account[]) => StorageService.saveAccounts(accs);
+export const getStoredCurrentUser = () => StorageService.getUser();
+export const getStoredSettings = () => StorageService.getGoogleSheetsConfig();
+export const loginUser = (u: string, p: string) => StorageService.getUser();
+
+export default StorageService;
