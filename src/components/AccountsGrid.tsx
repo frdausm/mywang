@@ -95,19 +95,22 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
     INSTITUTIONS_ORDER.forEach((instName, idx) => {
       const matched = filteredAccounts.filter(acc => {
         const b = (acc.bank || '').toLowerCase();
+        const n = (acc.account_name || '').toLowerCase();
+        const notes = (acc.notes || '').toLowerCase();
+        const id = (acc.id || '').toLowerCase();
         const target = instName.toLowerCase();
         
-        if (target.includes('maybank') && b.includes('maybank')) return true;
-        if (target.includes('rhb') && b.includes('rhb')) return true;
-        if (target.includes('cimb') && b.includes('cimb')) return true;
-        if (target.includes('touch') && (b.includes('touch') || b.includes('tng'))) return true;
-        if (target.includes('boost') && b.includes('boost')) return true;
-        if (target.includes('setel') && b.includes('setel')) return true;
-        if (target.includes('shopee') && b.includes('shopee')) return true;
-        if (target.includes('atome') && b.includes('atome')) return true;
-        if (target.includes('bsn') && b.includes('bsn')) return true;
-        if (target.includes('gx') && (b.includes('gx') || b.includes('gxbank'))) return true;
-        if (target.includes('aeon') && b.includes('aeon')) return true;
+        if (target.includes('maybank') && (b.includes('maybank') || n.includes('maybank') || b.includes('mae') || n.includes('mae') || id.includes('mb') || id.includes('maybank'))) return true;
+        if (target.includes('rhb') && (b.includes('rhb') || n.includes('rhb') || id.includes('rhb'))) return true;
+        if (target.includes('cimb') && (b.includes('cimb') || n.includes('cimb') || id.includes('cimb'))) return true;
+        if (target.includes('touch') && (b.includes('touch') || b.includes('tng') || n.includes('touch') || n.includes('tng') || id.includes('tng'))) return true;
+        if (target.includes('boost') && (b.includes('boost') || n.includes('boost') || id.includes('boost'))) return true;
+        if (target.includes('setel') && (b.includes('setel') || n.includes('setel') || id.includes('setel') || b.includes('petronas') || n.includes('petronas'))) return true;
+        if (target.includes('shopee') && (b.includes('shopee') || b.includes('spaylater') || n.includes('shopee') || n.includes('spaylater') || id.includes('shopee') || id.includes('spaylater'))) return true;
+        if (target.includes('atome') && (b.includes('atome') || n.includes('atome') || id.includes('atome'))) return true;
+        if (target.includes('bsn') && (b.includes('bsn') || b.includes('ssp') || n.includes('bsn') || n.includes('ssp') || id.includes('bsn'))) return true;
+        if (target.includes('gx') && (b.includes('gx') || b.includes('gxbank') || n.includes('gx') || n.includes('gxbank') || id.includes('gx'))) return true;
+        if (target.includes('aeon') && (b.includes('aeon') || n.includes('aeon') || n.includes('savings pot') || b.includes('savings pot') || n.includes('tabung keluarga') || n.includes('savings account-i') || notes.includes('aeon') || id.includes('aeon'))) return true;
 
         return false;
       });
