@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Account, AccountType } from '../types';
-import { X, Plus, Landmark, Smartphone, CreditCard, Clock, PiggyBank, Wallet } from 'lucide-react';
+import { X, Plus, Landmark, Smartphone, CreditCard, Clock, PiggyBank, Wallet, Sparkles, Coins } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface AddAccountModalProps {
@@ -18,6 +18,10 @@ const POPULAR_INSTITUTIONS = [
   'Setel by Petronas',
   'Shopee',
   'Atome',
+  'BSN',
+  'GXBANK',
+  'AEON BANK',
+  'ASNB',
   'Bank Islam',
   'Public Bank',
   'Hong Leong Bank',
@@ -25,8 +29,6 @@ const POPULAR_INSTITUTIONS = [
   'Affin Bank',
   'Bank Muamalat',
   'Tabung Haji',
-  'Amanah Saham Bumiputera (ASB)',
-  'GrabPay',
   'Dompet Tunai / Cash',
   'Lain-lain'
 ];
@@ -145,7 +147,8 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
                   { id: 'ewallet', label: 'e-Wallet', icon: Smartphone },
                   { id: 'credit_card', label: 'Kad Kredit', icon: CreditCard },
                   { id: 'paylater', label: 'PayLater', icon: Clock },
-                  { id: 'investment', label: 'Simpanan', icon: PiggyBank },
+                  { id: 'investment', label: 'Pelaburan / ASNB', icon: Coins },
+                  { id: 'gold', label: 'Emas / MIGA', icon: Sparkles },
                   { id: 'cash', label: 'Tunai', icon: Wallet },
                 ].map((item) => {
                   const Icon = item.icon;
