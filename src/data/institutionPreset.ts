@@ -178,6 +178,17 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
     notes: 'Bank Simpanan Nasional',
     updated_at: '2026-08-16',
   },
+  {
+    id: 'acc_bsn_ssp_40',
+    bank: 'BSN',
+    account_name: 'SSP BSN (Sijil RM40)',
+    type: 'investment',
+    balance: 40.00,
+    color: 'from-teal-600 to-emerald-700',
+    icon: 'Award',
+    notes: 'Cabutan Sijil Simpanan Premium RM40',
+    updated_at: '2026-08-17',
+  },
 
   // 10. GXBANK
   {
@@ -218,14 +229,17 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
 
   // 12. Maybank Islamic Gold Account (MIGA-i)
   {
-    id: 'acc_mb_miga',
+    id: 'acc_miga_gold',
     bank: 'Maybank',
     account_name: 'MIGA-i Gold (0.088g)',
     type: 'gold',
     balance: 49.43,
-    color: 'from-amber-400 to-yellow-600',
+    weight_grams: 0.088,
+    avg_price_per_gram: 604.79,
+    total_invested: 51.73,
+    color: 'from-amber-400 via-amber-500 to-yellow-600',
     icon: 'Sparkles',
-    notes: 'Akaun 764018601800 | 0.088g @ RM604.79/g (Modal: RM51.73)',
+    notes: 'Maybank MIGA-i 764018601800 (0.088g @ RM604.79/g, Nilai: RM49.43)',
     updated_at: '2026-08-17',
   },
 
@@ -236,9 +250,11 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
     account_name: 'Amanah Saham Bumiputera (ASB)',
     type: 'investment',
     balance: 227.09,
-    color: 'from-blue-600 to-indigo-800',
+    fund_name: 'Amanah Saham Bumiputera',
+    account_number: '000007814094',
+    color: 'from-blue-700 to-sky-900',
     icon: 'Coins',
-    notes: 'ASNB Akaun 000007814094 | Firdaus Bin Mohd Pauzi',
+    notes: 'Firdaus Bin Mohd Pauzi - ASB (000007814094)',
     updated_at: '2026-08-17',
   },
   {
@@ -247,9 +263,11 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
     account_name: 'Amanah Saham Nasional (ASN)',
     type: 'investment',
     balance: 16.81,
-    color: 'from-sky-600 to-blue-800',
+    fund_name: 'Amanah Saham Nasional',
+    account_number: '000007814094',
+    color: 'from-blue-600 to-indigo-800',
     icon: 'Coins',
-    notes: 'ASNB Akaun 000007814094 | Firdaus Bin Mohd Pauzi',
+    notes: 'Firdaus Bin Mohd Pauzi - ASN (000007814094)',
     updated_at: '2026-08-17',
   },
 ];
