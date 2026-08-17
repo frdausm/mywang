@@ -27,7 +27,7 @@ interface AccountsGridProps {
   onApplyInstitutionPreset?: (presetAccounts: Account[]) => void;
 }
 
-// Ordered list of 11 Institutions as requested
+// Ordered list of Institutions as requested
 const INSTITUTIONS_ORDER = [
   'Maybank',
   'RHB Bank',
@@ -39,7 +39,8 @@ const INSTITUTIONS_ORDER = [
   'Atome',
   'BSN',
   'GXBANK',
-  'AEON BANK'
+  'AEON BANK',
+  'ASNB',
 ];
 
 export const AccountsGrid: React.FC<AccountsGridProps> = ({
@@ -111,6 +112,7 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
         if (target.includes('bsn') && (b.includes('bsn') || b.includes('ssp') || n.includes('bsn') || n.includes('ssp') || id.includes('bsn'))) return true;
         if (target.includes('gx') && (b.includes('gx') || b.includes('gxbank') || n.includes('gx') || n.includes('gxbank') || id.includes('gx'))) return true;
         if (target.includes('aeon') && (b.includes('aeon') || n.includes('aeon') || n.includes('savings pot') || b.includes('savings pot') || n.includes('tabung keluarga') || n.includes('savings account-i') || notes.includes('aeon') || id.includes('aeon'))) return true;
+        if (target.includes('asnb') && (b.includes('asnb') || n.includes('asnb') || n.includes('amanah saham') || n.includes('asb') || n.includes('asn') || id.includes('asnb') || notes.includes('asnb'))) return true;
 
         return false;
       });
@@ -253,12 +255,12 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
             <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <span>Akaun & Dompet Saya ({accounts.length})</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-semibold border border-emerald-200 dark:border-emerald-800">
-                11 Institusi Lengkap
+                12 Institusi Lengkap
               </span>
             </h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Susunan Grid Kad Mengikut Institusi: Maybank, RHB, CIMB, TNG, Boost, Setel, Shopee, Atome, BSN, GXBank & AEON Bank.
+            Susunan Grid Kad Mengikut Institusi: Maybank (termasuk MIGA-i Gold), RHB, CIMB, TNG, Boost, Setel, Shopee, Atome, BSN, GXBank, AEON Bank & ASNB (ASB & ASN).
           </p>
         </div>
 
@@ -326,10 +328,10 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
             </div>
             <div>
               <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                Struktur 11 Grid Institusi (16 Sub-Akaun Lengkap)
+                Struktur Grid Institusi Lengkap ({accounts.length} Sub-Akaun Termasuk MIGA-i & ASNB)
               </h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                1. Maybank (3) • 2. RHB (2) • 3. CIMB • 4. TNG • 5. Boost • 6. Setel • 7. Shopee (2) • 8. Atome (2) • 9. BSN • 10. GXBank • 11. AEON Bank (2)
+                Maybank (termasuk MIGA-i Gold) • RHB • CIMB • TNG • Boost • Setel • Shopee • Atome • BSN • GXBank • AEON Bank • ASNB (ASB & ASN)
               </p>
             </div>
           </div>
@@ -338,7 +340,7 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
             id="btn_activate_11_institutions"
             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm shadow-emerald-600/30 transition-all cursor-pointer shrink-0"
           >
-            {accounts.length < 10 ? '⚡ Aktifkan Semua 11 Institusi' : '🔄 Muat Semula 11 Institusi'}
+            {accounts.length < 10 ? '⚡ Aktifkan Semua Institusi' : '🔄 Muat Semula Semua Akaun & Pelaburan'}
           </button>
         </div>
       )}
