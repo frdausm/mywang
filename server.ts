@@ -606,13 +606,24 @@ app.post("/api/gas-proxy", async (req, res) => {
         const rawAccounts = result.accounts || result.data?.accounts || [];
         const accountsData = Array.isArray(rawAccounts) && rawAccounts.length > 0 ? rawAccounts : undefined;
 
-        // Auto backup into server data file
+        // Auto backup into server data file safely (preserve full account structure)
         const currentDb = readServerData() || {};
         if (mappedTransactions.length > 0) {
           currentDb.transactions = mappedTransactions;
         }
-        if (accountsData) {
-          currentDb.accounts = accountsData;
+        if (accountsData && accountsData.length > 0) {
+          const currentAccounts = Array.isArray(currentDb.accounts) ? currentDb.accounts : [];
+          const accMap = new Map();
+          currentAccounts.forEach((a: any) => accMap.set(a.id, a));
+          accountsData.forEach((a: any) => {
+            const cur = accMap.get(a.id || a.AccountID);
+            if (cur) {
+              accMap.set(cur.id, { ...cur, ...a });
+            } else {
+              accMap.set(a.id || a.AccountID, a);
+            }
+          });
+          currentDb.accounts = Array.from(accMap.values());
         }
         currentDb.last_gas_synced = new Date().toISOString();
         saveServerData(currentDb);
