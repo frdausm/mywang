@@ -95,24 +95,63 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
 
     INSTITUTIONS_ORDER.forEach((instName, idx) => {
       const matched = filteredAccounts.filter(acc => {
-        const b = (acc.bank || '').toLowerCase();
-        const n = (acc.account_name || '').toLowerCase();
-        const notes = (acc.notes || '').toLowerCase();
-        const id = (acc.id || '').toLowerCase();
-        const target = instName.toLowerCase();
+        if (assignedIds.has(acc.id)) return false;
+
+        const b = (acc.bank || '').toLowerCase().trim();
+        const n = (acc.account_name || '').toLowerCase().trim();
+        const notes = (acc.notes || '').toLowerCase().trim();
+        const id = (acc.id || '').toLowerCase().trim();
+        const target = instName.toLowerCase().trim();
         
-        if (target.includes('maybank') && (b.includes('maybank') || n.includes('maybank') || b.includes('mae') || n.includes('mae') || id.includes('mb') || id.includes('maybank'))) return true;
-        if (target.includes('rhb') && (b.includes('rhb') || n.includes('rhb') || id.includes('rhb'))) return true;
-        if (target.includes('cimb') && (b.includes('cimb') || n.includes('cimb') || id.includes('cimb'))) return true;
-        if (target.includes('touch') && (b.includes('touch') || b.includes('tng') || n.includes('touch') || n.includes('tng') || id.includes('tng'))) return true;
-        if (target.includes('boost') && (b.includes('boost') || n.includes('boost') || id.includes('boost'))) return true;
-        if (target.includes('setel') && (b.includes('setel') || n.includes('setel') || id.includes('setel') || b.includes('petronas') || n.includes('petronas'))) return true;
-        if (target.includes('shopee') && (b.includes('shopee') || b.includes('spaylater') || n.includes('shopee') || n.includes('spaylater') || id.includes('shopee') || id.includes('spaylater'))) return true;
-        if (target.includes('atome') && (b.includes('atome') || n.includes('atome') || id.includes('atome'))) return true;
-        if (target.includes('bsn') && (b.includes('bsn') || b.includes('ssp') || n.includes('bsn') || n.includes('ssp') || id.includes('bsn'))) return true;
-        if (target.includes('gx') && (b.includes('gx') || b.includes('gxbank') || n.includes('gx') || n.includes('gxbank') || id.includes('gx'))) return true;
-        if (target.includes('aeon') && (b.includes('aeon') || n.includes('aeon') || n.includes('savings pot') || b.includes('savings pot') || n.includes('tabung keluarga') || n.includes('savings account-i') || notes.includes('aeon') || id.includes('aeon'))) return true;
-        if (target.includes('asnb') && (b.includes('asnb') || n.includes('asnb') || n.includes('amanah saham') || n.includes('asb') || n.includes('asn') || id.includes('asnb') || notes.includes('asnb'))) return true;
+        if (target === 'maybank') {
+          // Exclude CIMB even if it has 'petronas' or other shared words
+          if (b.includes('cimb') || n.includes('cimb') || id.includes('cimb')) return false;
+          return b.includes('maybank') || n.includes('maybank') || b.includes('mae') || n.includes('mae') || id.includes('mb') || id.includes('maybank') || n.includes('miga');
+        }
+
+        if (target === 'rhb bank') {
+          return b.includes('rhb') || n.includes('rhb') || id.includes('rhb');
+        }
+
+        if (target === 'cimb') {
+          return b.includes('cimb') || n.includes('cimb') || id.includes('cimb');
+        }
+
+        if (target.includes('touch') || target.includes('tng')) {
+          return b.includes('touch') || b.includes('tng') || n.includes('touch') || n.includes('tng') || id.includes('tng');
+        }
+
+        if (target === 'boost') {
+          return b.includes('boost') || n.includes('boost') || id.includes('boost');
+        }
+
+        if (target.includes('setel')) {
+          return b.includes('setel') || n.includes('setel') || id.includes('setel');
+        }
+
+        if (target === 'shopee') {
+          return b.includes('shopee') || b.includes('spaylater') || n.includes('shopee') || n.includes('spaylater') || id.includes('shopee') || id.includes('spaylater');
+        }
+
+        if (target === 'atome') {
+          return b.includes('atome') || n.includes('atome') || id.includes('atome');
+        }
+
+        if (target === 'bsn') {
+          return b.includes('bsn') || b.includes('ssp') || n.includes('bsn') || n.includes('ssp') || id.includes('bsn');
+        }
+
+        if (target === 'gxbank') {
+          return b.includes('gx') || b.includes('gxbank') || n.includes('gx') || n.includes('gxbank') || id.includes('gx');
+        }
+
+        if (target === 'aeon bank') {
+          return b.includes('aeon') || n.includes('aeon') || n.includes('savings pot') || b.includes('savings pot') || n.includes('tabung keluarga') || n.includes('savings account-i') || notes.includes('aeon') || id.includes('aeon');
+        }
+
+        if (target === 'asnb') {
+          return b.includes('asnb') || n.includes('asnb') || n.includes('amanah saham') || n.includes('asb') || n.includes('asn') || id.includes('asnb') || notes.includes('asnb');
+        }
 
         return false;
       });
