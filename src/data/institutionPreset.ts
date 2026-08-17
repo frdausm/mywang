@@ -215,4 +215,41 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
     notes: 'Simpanan khas Tabung Keluarga',
     updated_at: '2026-08-16',
   },
+
+  // 12. Maybank Islamic Gold Account (MIGA-i)
+  {
+    id: 'acc_mb_miga',
+    bank: 'Maybank',
+    account_name: 'MIGA-i Gold (0.088g)',
+    type: 'gold',
+    balance: 49.43,
+    color: 'from-amber-400 to-yellow-600',
+    icon: 'Sparkles',
+    notes: 'Akaun 764018601800 | 0.088g @ RM604.79/g (Modal: RM51.73)',
+    updated_at: '2026-08-17',
+  },
+
+  // 13. Amanah Saham Nasional Berhad (ASNB)
+  {
+    id: 'acc_asnb_asb',
+    bank: 'ASNB',
+    account_name: 'Amanah Saham Bumiputera (ASB)',
+    type: 'investment',
+    balance: 227.09,
+    color: 'from-blue-600 to-indigo-800',
+    icon: 'Coins',
+    notes: 'ASNB Akaun 000007814094 | Firdaus Bin Mohd Pauzi',
+    updated_at: '2026-08-17',
+  },
+  {
+    id: 'acc_asnb_asn',
+    bank: 'ASNB',
+    account_name: 'Amanah Saham Nasional (ASN)',
+    type: 'investment',
+    balance: 16.81,
+    color: 'from-sky-600 to-blue-800',
+    icon: 'Coins',
+    notes: 'ASNB Akaun 000007814094 | Firdaus Bin Mohd Pauzi',
+    updated_at: '2026-08-17',
+  },
 ];
