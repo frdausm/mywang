@@ -1,88 +1,72 @@
-import React, { useState, useEffect } from 'react';
-import { Account, CategoryItem, Transaction, TransactionType } from '../types';
-import { X, Plus, ArrowDownLeft, ArrowUpRight, Scale, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Account, AccountType } from '../types';
+import { X, Plus, Landmark, Smartphone, CreditCard, Clock, PiggyBank, Wallet, Sparkles, Coins } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-interface AddTransactionModalProps {
+interface AddAccountModalProps {
   isOpen: boolean;
-  accounts: Account[];
-  incomeCategories: CategoryItem[];
-  expenseCategories: CategoryItem[];
-  defaultType?: TransactionType;
   onClose: () => void;
-  onAddTransaction: (transaction: Omit<Transaction, 'id' | 'created_at'>) => Promise<void>;
+  onAdd: (newAccount: Account) => Promise<void>;
 }
 
-export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
+const POPULAR_INSTITUTIONS = [
+  'Maybank',
+  'RHB Bank',
+  'CIMB',
+  "Touch 'n Go",
+  'Boost',
+  'Setel by Petronas',
+  'Shopee',
+  'Atome',
+  'BSN',
+  'GXBANK',
+  'AEON BANK',
+  'ASNB',
+  'Bank Islam',
+  'Public Bank',
+  'Hong Leong Bank',
+  'AmBank',
+  'Affin Bank',
+  'Bank Muamalat',
+  'Tabung Haji',
+  'Dompet Tunai / Cash',
+  'Lain-lain'
+];
+
+export const AddAccountModal: React.FC<AddAccountModalProps> = ({
   isOpen,
-  accounts,
-  incomeCategories,
-  expenseCategories,
-  defaultType = 'expense',
   onClose,
-  onAddTransaction,
+  onAdd,
 }) => {
-  const [type, setType] = useState<TransactionType>(defaultType);
-  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [category, setCategory] = useState('');
-  const [note, setNote] = useState('');
+  const [bank, setBank] = useState('Maybank');
+  const [customBank, setCustomBank] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [type, setType] = useState<AccountType>('bank');
+  const [balance, setBalance] = useState<string>('0');
+  const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    setType(defaultType);
-  }, [defaultType, isOpen]);
-
-  useEffect(() => {
-    if (accounts.length > 0 && !accountId) {
-      setAccountId(accounts[0].id);
-    }
-  }, [accounts, accountId]);
-
-  useEffect(() => {
-    if (type === 'income') {
-      setCategory(incomeCategories[0]?.name || 'Gaji');
-    } else if (type === 'expense') {
-      setCategory(expenseCategories[0]?.name || 'Makanan & Minuman');
-    } else {
-      setCategory('Pelarasan Baki');
-    }
-  }, [type, incomeCategories, expenseCategories]);
 
   if (!isOpen) return null;
 
-  const currentCategories = type === 'income' ? incomeCategories : expenseCategories;
-  const numAmount = parseFloat(amount) || 0;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-
-    if (!accountId) {
-      setError('Sila pilih akaun yang terlibat.');
-      return;
-    }
-
-    if (numAmount <= 0) {
-      setError('Jumlah mestilah melebihi RM 0.00.');
-      return;
-    }
-
     setIsSubmitting(true);
-    const selectedAcc = accounts.find((a) => a.id === accountId);
 
-    await onAddTransaction({
-      date,
-      account_id: accountId,
-      account_name: selectedAcc ? `${selectedAcc.bank} - ${selectedAcc.account_name}` : undefined,
-      type,
-      category: category || (type === 'income' ? 'Gaji' : 'Perbelanjaan'),
-      amount: numAmount,
-      note: note.trim(),
-    });
+    const institutionName = bank === 'Lain-lain' && customBank.trim() ? customBank.trim() : bank;
+    const finalAccountName = accountName.trim() || `${institutionName} Akaun`;
+    const numBalance = parseFloat(balance) || 0;
 
+    const newAcc: Account = {
+      id: 'acc_' + Date.now(),
+      bank: institutionName,
+      account_name: finalAccountName,
+      type: type,
+      balance: numBalance,
+      notes: notes.trim(),
+      updated_at: new Date().toISOString().split('T')[0],
+    };
+
+    await onAdd(newAcc);
     setIsSubmitting(false);
     onClose();
   };
@@ -100,10 +84,10 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           <div className="flex items-center justify-between p-6 border-b border-slate-100 dark:border-slate-800">
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                + Rekod Transaksi Baru
+                + Tambah Akaun Baru
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Masukkan rekod duit masuk, perbelanjaan, atau pelarasan.
+                Daftar akaun bank, dompet digital, atau kad kredit anda.
               </p>
             </div>
             <button
@@ -117,157 +101,126 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             
-            {error && (
-              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-medium">
-                {error}
+            {/* Institution / Bank */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Nama Institusi / Bank / e-Wallet
+              </label>
+              <select
+                id="select_add_bank"
+                value={bank}
+                onChange={(e) => setBank(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              >
+                {POPULAR_INSTITUTIONS.map((inst) => (
+                  <option key={inst} value={inst}>
+                    {inst}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {bank === 'Lain-lain' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Nama Institusi Kustom
+                </label>
+                <input
+                  type="text"
+                  value={customBank}
+                  onChange={(e) => setCustomBank(e.target.value)}
+                  required
+                  placeholder="cth: Koperasi / Crypto / Wallet Luar"
+                  className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
               </div>
             )}
 
-            {/* Transaction Type Selector */}
+            {/* Account Type */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                Jenis Transaksi
+                Jenis Akaun
               </label>
               <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setType('expense')}
-                  className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    type === 'expense'
-                      ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-500 text-rose-700 dark:text-rose-300 shadow-xs'
-                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  <ArrowUpRight className="w-4 h-4 text-rose-500" />
-                  <span>Duit Keluar</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setType('income')}
-                  className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    type === 'income'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-xs'
-                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  <ArrowDownLeft className="w-4 h-4 text-emerald-500" />
-                  <span>Duit Masuk</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setType('adjustment')}
-                  className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    type === 'adjustment'
-                      ? 'bg-purple-50 dark:bg-purple-950/60 border-purple-500 text-purple-700 dark:text-purple-300 shadow-xs'
-                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  <Scale className="w-4 h-4 text-purple-500" />
-                  <span>Pelarasan</span>
-                </button>
+                {[
+                  { id: 'bank', label: 'Bank', icon: Landmark },
+                  { id: 'ewallet', label: 'e-Wallet', icon: Smartphone },
+                  { id: 'credit_card', label: 'Kad Kredit', icon: CreditCard },
+                  { id: 'paylater', label: 'PayLater', icon: Clock },
+                  { id: 'investment', label: 'Pelaburan / ASNB', icon: Coins },
+                  { id: 'gold', label: 'Emas / MIGA', icon: Sparkles },
+                  { id: 'cash', label: 'Tunai', icon: Wallet },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isSelected = type === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setType(item.id as AccountType)}
+                      className={`p-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Account & Date Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Akaun Terlibat
-                </label>
-                <select
-                  id="select_add_tx_account"
-                  value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                >
-                  {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.bank} - {acc.account_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Account Name */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Nama Akaun
+              </label>
+              <input
+                type="text"
+                id="input_add_account_name"
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                required
+                placeholder="cth: MAE / Savings Account / Kad Cashback"
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              />
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Tarikh Transaksi
-                </label>
+            {/* Opening Balance */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                Baki Permulaan (RM) {(type === 'credit_card' || type === 'paylater') && <span className="text-rose-500 font-normal">(- jika ada hutang semasa)</span>}
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 font-bold text-sm">
+                  RM
+                </div>
                 <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  type="number"
+                  step="0.01"
+                  id="input_add_balance"
+                  value={balance}
+                  onChange={(e) => setBalance(e.target.value)}
                   required
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  placeholder="0.00"
+                  className="w-full pl-12 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>
             </div>
 
-            {/* Category & Amount Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Kategori
-                </label>
-                {type === 'adjustment' ? (
-                  <input
-                    type="text"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white"
-                  />
-                ) : (
-                  <select
-                    id="select_add_tx_category"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  >
-                    {currentCategories.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Jumlah (RM)
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 font-bold text-xs">
-                    RM
-                  </div>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    id="input_add_tx_amount"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                    placeholder="0.00"
-                    className="w-full pl-10 pr-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Note */}
+            {/* Notes */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                Nota Transaksi
+                Catatan (Pilihan)
               </label>
               <input
                 type="text"
-                id="input_add_tx_note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="cth: Makan tengahari, Servis kereta, Dividen ASB"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="cth: Gaji bulanan, rebate petrol"
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
               />
             </div>
 
@@ -283,15 +236,15 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                id="btn_submit_add_transaction"
+                id="btn_submit_new_account"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition-all cursor-pointer disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <Check className="w-4 h-4" />
-                    <span>Rekod Transaksi</span>
+                    <Plus className="w-4 h-4" />
+                    <span>Tambah Akaun</span>
                   </>
                 )}
               </button>
