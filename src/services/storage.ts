@@ -230,14 +230,28 @@ export class StorageService {
 
     accounts.forEach((acc) => {
       const bal = Number(acc.balance) || 0;
-      if (bal > 0) totalMoney += bal;
-      if (acc.type === 'bank' || acc.type === 'ewallet' || acc.type === 'cash') {
-        if (bal > 0) cashAvailable += bal;
+      const isDebtType = acc.type === 'credit_card' || acc.type === 'paylater';
+
+      if (isDebtType) {
+        // For credit cards and paylaters, the balance (whether stored positive or negative) is credit/debt used
+        const debtAmt = Math.abs(bal);
+        creditUsed += debtAmt;
+        netWorth -= debtAmt;
+      } else {
+        // Standard asset accounts (bank, ewallet, cash, investment, gold)
+        if (bal >= 0) {
+          totalMoney += bal;
+          if (acc.type === 'bank' || acc.type === 'ewallet' || acc.type === 'cash') {
+            cashAvailable += bal;
+          }
+          netWorth += bal;
+        } else {
+          // Negative balance in a normal bank account is an overdraft / liability
+          const overdraftDebt = Math.abs(bal);
+          creditUsed += overdraftDebt;
+          netWorth -= overdraftDebt;
+        }
       }
-      if (acc.type === 'credit_card' || acc.type === 'paylater') {
-        if (bal < 0) creditUsed += Math.abs(bal);
-      }
-      netWorth += bal;
     });
 
     const now = new Date();
@@ -548,26 +562,38 @@ export class StorageService {
 
     const getMeta = (bank: string, name: string, typeStr: string) => {
       const combined = `${bank} ${name} ${typeStr}`.toLowerCase();
-      if (combined.includes('maybank') || combined.includes('mae')) {
-        return { bank: 'Maybank', color: 'from-amber-500 to-yellow-600', icon: combined.includes('wallet') ? 'Smartphone' : combined.includes('credit') ? 'CreditCard' : 'Landmark' };
+      if (combined.includes('maybank') || combined.includes('mae') || combined.includes('ikhwan')) {
+        return { bank: 'Maybank', color: 'from-amber-500 to-yellow-600', icon: combined.includes('wallet') || combined.includes('mae') ? 'Smartphone' : combined.includes('credit') || combined.includes('card') ? 'CreditCard' : 'Landmark' };
       }
       if (combined.includes('cimb')) {
-        return { bank: 'CIMB Bank', color: 'from-red-600 to-rose-800', icon: combined.includes('credit') ? 'CreditCard' : 'Landmark' };
+        return { bank: 'CIMB', color: 'from-red-600 to-rose-800', icon: combined.includes('credit') || combined.includes('petronas') ? 'CreditCard' : 'Landmark' };
       }
       if (combined.includes('rhb')) {
         return { bank: 'RHB Bank', color: 'from-blue-600 to-cyan-700', icon: combined.includes('credit') ? 'CreditCard' : 'Landmark' };
       }
       if (combined.includes('touch') || combined.includes('tng')) {
-        return { bank: "Touch 'n Go", color: 'from-blue-500 to-sky-600', icon: 'Smartphone' };
+        return { bank: "Touch 'n Go eWallet", color: 'from-blue-500 to-sky-600', icon: 'Smartphone' };
+      }
+      if (combined.includes('boost')) {
+        return { bank: 'Boost', color: 'from-red-500 to-orange-600', icon: 'Smartphone' };
+      }
+      if (combined.includes('setel') || combined.includes('petronas')) {
+        return { bank: 'Setel by Petronas', color: 'from-emerald-500 to-teal-700', icon: 'Fuel' };
+      }
+      if (combined.includes('shopee') || combined.includes('spaylater')) {
+        return { bank: 'Shopee', color: 'from-orange-500 to-amber-600', icon: 'ShoppingBag' };
+      }
+      if (combined.includes('atome')) {
+        return { bank: 'Atome', color: 'from-lime-500 to-yellow-600', icon: 'Clock' };
+      }
+      if (combined.includes('aeon') || combined.includes('savings pot') || combined.includes('tabung keluarga') || combined.includes('savings account-i')) {
+        return { bank: 'AEON BANK', color: 'from-fuchsia-600 to-pink-700', icon: combined.includes('pot') ? 'PiggyBank' : 'Landmark' };
+      }
+      if (combined.includes('gx') || combined.includes('gxbank')) {
+        return { bank: 'GXBANK', color: 'from-violet-600 to-purple-800', icon: 'Landmark' };
       }
       if (combined.includes('tunai') || combined.includes('cash') || combined.includes('dompet')) {
         return { bank: 'Tunai (Cash)', color: 'from-emerald-500 to-teal-700', icon: 'Coins' };
-      }
-      if (combined.includes('aeon')) {
-        return { bank: 'AEON Bank', color: 'from-fuchsia-600 to-pink-700', icon: 'Landmark' };
-      }
-      if (combined.includes('gx')) {
-        return { bank: 'GXBank', color: 'from-violet-600 to-purple-800', icon: 'Landmark' };
       }
       if (combined.includes('public')) {
         return { bank: 'Public Bank', color: 'from-red-700 to-amber-700', icon: 'Landmark' };
@@ -587,17 +613,14 @@ export class StorageService {
       if (combined.includes('miga') || combined.includes('emas') || combined.includes('gold')) {
         return { bank: 'Maybank Islamic (MIGA)', color: 'from-amber-600 to-yellow-700', icon: 'Coins' };
       }
-      if (combined.includes('atome') || combined.includes('spaylater') || combined.includes('paylater')) {
-        return { bank: 'PayLater', color: 'from-amber-500 to-yellow-700', icon: 'Clock' };
-      }
       return { bank: bank || 'Akaun Simpanan', color: 'from-slate-600 to-gray-800', icon: 'Wallet' };
     };
 
-    const normalizeType = (rawType: string, name: string): Account['type'] => {
-      const combined = `${rawType} ${name}`.toLowerCase();
-      if (combined.includes('credit') || combined.includes('kad kredit')) return 'credit_card';
-      if (combined.includes('paylater') || combined.includes('bnpl') || combined.includes('atome')) return 'paylater';
-      if (combined.includes('ewallet') || combined.includes('wallet') || combined.includes('tng') || combined.includes('mae')) return 'ewallet';
+    const normalizeType = (rawType: string, name: string, bank: string): Account['type'] => {
+      const combined = `${rawType} ${name} ${bank}`.toLowerCase();
+      if (combined.includes('credit') || combined.includes('kad kredit') || combined.includes('visa') || combined.includes('mastercard') || combined.includes('ikhwan') || combined.includes('card')) return 'credit_card';
+      if (combined.includes('paylater') || combined.includes('bnpl') || combined.includes('atome') || combined.includes('spaylater')) return 'paylater';
+      if (combined.includes('ewallet') || combined.includes('wallet') || combined.includes('tng') || combined.includes('mae') || combined.includes('boost') || combined.includes('setel') || combined.includes('shopeepay')) return 'ewallet';
       if (combined.includes('cash') || combined.includes('tunai') || combined.includes('dompet')) return 'cash';
       if (combined.includes('investment') || combined.includes('pelaburan') || combined.includes('asnb') || combined.includes('ssp') || combined.includes('emas') || combined.includes('miga')) return 'investment';
       return 'bank';
@@ -607,16 +630,25 @@ export class StorageService {
       const id = String(acc.AccountID || acc.id || acc.account_id || `acc_${idx + 1}`);
       const rawName = String(acc.AccountName || acc.account_name || acc.name || acc.Bank || acc.bank || `Akaun ${idx + 1}`).trim();
       const rawType = String(acc.AccountType || acc.type || 'Bank');
-      const accType = normalizeType(rawType, rawName);
-      const meta = getMeta(acc.Bank || acc.bank || '', rawName, rawType);
+      const rawBank = String(acc.Bank || acc.bank || '').trim();
+      const accType = normalizeType(rawType, rawName, rawBank);
+      const meta = getMeta(rawBank, rawName, rawType);
       
+      let finalBank = rawBank;
+      if (!finalBank || finalBank === rawName || finalBank.toLowerCase().includes('akaun') || finalBank.toLowerCase().includes('simpanan') || finalBank.toLowerCase().includes('savings pot') || finalBank.toLowerCase().includes('tabung keluarga')) {
+        finalBank = meta.bank;
+      }
+      if (rawName.toLowerCase().includes('savings pot') || rawName.toLowerCase().includes('tabung keluarga') || rawName.toLowerCase().includes('savings account-i')) {
+        finalBank = 'AEON BANK';
+      }
+
       const balanceVal = acc.InitialBalance !== undefined ? acc.InitialBalance : acc.balance !== undefined ? acc.balance : acc.Balance;
       const parsedBalance = parseFloat(balanceVal) || 0;
       const creditLimit = parseFloat(acc.CreditLimit || acc.credit_limit) || undefined;
 
       return {
         id,
-        bank: acc.Bank || acc.bank || meta.bank,
+        bank: finalBank,
         account_name: rawName,
         type: accType,
         balance: parsedBalance,
@@ -921,6 +953,39 @@ export class StorageService {
           } catch {}
         }
         return { success: true, message: txRes?.message || 'Transaksi direkod ke Google Sheets.' };
+      }
+
+      // Handle recordTransfer / transferMoney / transfer
+      if (action === 'recordTransfer' || action === 'transferMoney' || action === 'transfer' || action === 'transfer_money') {
+        const transferPayload = {
+          from_account_id: payload.from_account_id || payload.from_account || payload.from,
+          to_account_id: payload.to_account_id || payload.to_account || payload.to,
+          from_account_name: payload.from_account_name || payload.from_bank,
+          to_account_name: payload.to_account_name || payload.to_bank,
+          from: payload.from_account_id || payload.from_account || payload.from,
+          to: payload.to_account_id || payload.to_account || payload.to,
+          amount: parseFloat(payload.amount) || 0,
+          date: payload.date || new Date().toISOString().split('T')[0],
+          note: payload.note || 'Pindahan Antara Akaun',
+          Username: payload.username || activeUsername || 'user',
+          username: payload.username || activeUsername || 'user',
+        };
+
+        let transferRes: any = null;
+        try {
+          transferRes = await executeGasCall('transferMoney', transferPayload);
+        } catch {}
+        if (!transferRes || transferRes.status !== 'success') {
+          try {
+            transferRes = await executeGasCall('transfer_money', transferPayload);
+          } catch {}
+        }
+        if (!transferRes || transferRes.status !== 'success') {
+          try {
+            transferRes = await executeGasCall('recordTransfer', transferPayload);
+          } catch {}
+        }
+        return { success: true, data: transferRes?.data, message: transferRes?.message || 'Pindahan berjaya diselaraskan ke Google Sheets!' };
       }
 
       // Generic pass-through
