@@ -328,13 +328,17 @@ function DashboardApp() {
 
     if (!fromAcc || !toAcc) return;
 
+    const transferAmt = Number(transferData.amount) || 0;
+
     // Update account balances
     const updatedAccounts = accounts.map((acc) => {
       if (acc.id === fromAcc.id) {
-        return { ...acc, balance: acc.balance - transferData.amount, updated_at: transferData.date };
+        const newBal = Math.round((acc.balance - transferAmt) * 100) / 100;
+        return { ...acc, balance: newBal, updated_at: transferData.date };
       }
       if (acc.id === toAcc.id) {
-        return { ...acc, balance: acc.balance + transferData.amount, updated_at: transferData.date };
+        const newBal = Math.round((acc.balance + transferAmt) * 100) / 100;
+        return { ...acc, balance: newBal, updated_at: transferData.date };
       }
       return acc;
     });
@@ -352,7 +356,7 @@ function DashboardApp() {
       to_account_name: `${toAcc.bank} - ${toAcc.account_name}`,
       type: 'transfer',
       category: 'Pindahan Dana',
-      amount: transferData.amount,
+      amount: transferAmt,
       note: transferData.note,
       created_at: new Date().toISOString(),
     };
@@ -361,14 +365,15 @@ function DashboardApp() {
     setTransactions(updatedTxList);
     StorageService.saveTransactions(updatedTxList);
 
-    const newLogs = StorageService.addLog('TRANSFER', `Pindahan RM ${transferData.amount.toFixed(2)} dari ${fromAcc.account_name} ke ${toAcc.account_name}`, user?.username);
+    const newLogs = StorageService.addLog('TRANSFER', `Pindahan RM ${transferAmt.toFixed(2)} dari ${fromAcc.account_name} ke ${toAcc.account_name}`, user?.username);
     setLogs(newLogs);
 
-    addToast('success', `Pindahan RM ${transferData.amount.toFixed(2)} berjaya!`);
+    addToast('success', `Pindahan RM ${transferAmt.toFixed(2)} berjaya!`);
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedTxList }).catch(() => {});
     
     const fullTransferPayload = {
       ...transferData,
+      amount: transferAmt,
       from_account_name: `${fromAcc.bank} - ${fromAcc.account_name}`,
       to_account_name: `${toAcc.bank} - ${toAcc.account_name}`,
       from_bank: fromAcc.bank,
@@ -382,14 +387,15 @@ function DashboardApp() {
   const handleAddTransaction = async (txData: Omit<Transaction, 'id' | 'created_at'>) => {
     const targetAcc = accounts.find((a) => a.id === txData.account_id);
     let updatedAccounts = accounts;
+    const txAmount = Number(txData.amount) || 0;
     
     // Auto update account balance
     if (targetAcc) {
       let newBalance = targetAcc.balance;
       if (txData.type === 'income') {
-        newBalance += txData.amount;
+        newBalance = Math.round((newBalance + txAmount) * 100) / 100;
       } else if (txData.type === 'expense') {
-        newBalance -= txData.amount;
+        newBalance = Math.round((newBalance - txAmount) * 100) / 100;
       }
 
       updatedAccounts = accounts.map((a) =>
@@ -401,6 +407,7 @@ function DashboardApp() {
 
     const newTx: Transaction = {
       ...txData,
+      amount: txAmount,
       id: 'tx_' + Date.now(),
       created_at: new Date().toISOString(),
     };
@@ -410,10 +417,10 @@ function DashboardApp() {
     setTransactions(updatedList);
     StorageService.saveTransactions(updatedList);
 
-    const newLogs = StorageService.addLog('TRANSACTION', `Transaksi direkod: ${txData.type.toUpperCase()} RM ${txData.amount.toFixed(2)} (${txData.category})`, user?.username);
+    const newLogs = StorageService.addLog('TRANSACTION', `Transaksi direkod: ${txData.type.toUpperCase()} RM ${txAmount.toFixed(2)} (${txData.category})`, user?.username);
     setLogs(newLogs);
 
-    addToast('success', `Transaksi ${txData.category} RM ${txData.amount.toFixed(2)} disimpan.`);
+    addToast('success', `Transaksi ${txData.category} RM ${txAmount.toFixed(2)} disimpan.`);
 
     // Dual-save: Server Backend + GAS queue (Non-blocking)
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
@@ -424,8 +431,9 @@ function DashboardApp() {
   const handleRecordLoanPayment = async (loan: LoanFinancing, fromAccountId: string) => {
     const fromAcc = accounts.find((a) => a.id === fromAccountId);
     let updatedAccounts = accounts;
+    const installmentAmt = Number(loan.monthly_installment) || 0;
     if (fromAcc) {
-      const newBalance = fromAcc.balance - loan.monthly_installment;
+      const newBalance = Math.round((fromAcc.balance - installmentAmt) * 100) / 100;
       updatedAccounts = accounts.map((a) =>
         a.id === fromAcc.id ? { ...a, balance: newBalance, updated_at: new Date().toISOString().split('T')[0] } : a
       );
@@ -439,7 +447,7 @@ function DashboardApp() {
       account_name: fromAcc ? `${fromAcc.bank} - ${fromAcc.account_name}` : 'Akaun Pembayaran',
       type: 'expense',
       category: loan.type === 'hire_purchase' ? 'Ansuran Kereta' : 'Ansuran Pinjaman',
-      amount: loan.monthly_installment,
+      amount: installmentAmt,
       date: new Date().toISOString().split('T')[0],
       note: `Bayaran ansuran bulanan untuk ${loan.name} (${loan.provider})`,
       created_at: new Date().toISOString(),
@@ -449,9 +457,9 @@ function DashboardApp() {
     setTransactions(updatedList);
     StorageService.saveTransactions(updatedList);
 
-    const newLogs = StorageService.addLog('LOAN_PAYMENT', `Bayaran pinjaman direkod: RM ${loan.monthly_installment.toFixed(2)} untuk ${loan.name}`, user?.username);
+    const newLogs = StorageService.addLog('LOAN_PAYMENT', `Bayaran pinjaman direkod: RM ${installmentAmt.toFixed(2)} untuk ${loan.name}`, user?.username);
     setLogs(newLogs);
-    addToast('success', `Bayaran ansuran ${loan.name} RM ${loan.monthly_installment.toFixed(2)} berjaya direkod!`);
+    addToast('success', `Bayaran ansuran ${loan.name} RM ${installmentAmt.toFixed(2)} berjaya direkod!`);
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
     StorageService.enqueueSync('addTransaction', newTx);
   };
@@ -460,22 +468,24 @@ function DashboardApp() {
   const handleUpdateTransaction = async (updatedTx: Transaction) => {
     const oldTx = transactions.find((t) => t.id === updatedTx.id);
     let updatedAccounts = [...accounts];
+    const newAmt = Number(updatedTx.amount) || 0;
+    const oldAmt = oldTx ? Number(oldTx.amount) || 0 : 0;
     
     // Adjust account balance for differences
     if (oldTx) {
       // Revert old impact
       if (oldTx.type === 'income') {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === oldTx.account_id ? { ...a, balance: a.balance - oldTx.amount } : a
+          a.id === oldTx.account_id ? { ...a, balance: Math.round((a.balance - oldAmt) * 100) / 100 } : a
         );
       } else if (oldTx.type === 'expense') {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === oldTx.account_id ? { ...a, balance: a.balance + oldTx.amount } : a
+          a.id === oldTx.account_id ? { ...a, balance: Math.round((a.balance + oldAmt) * 100) / 100 } : a
         );
       } else if (oldTx.type === 'transfer' && oldTx.to_account_id) {
         updatedAccounts = updatedAccounts.map((a) => {
-          if (a.id === oldTx.account_id) return { ...a, balance: a.balance + oldTx.amount };
-          if (a.id === oldTx.to_account_id) return { ...a, balance: a.balance - oldTx.amount };
+          if (a.id === oldTx.account_id) return { ...a, balance: Math.round((a.balance + oldAmt) * 100) / 100 };
+          if (a.id === oldTx.to_account_id) return { ...a, balance: Math.round((a.balance - oldAmt) * 100) / 100 };
           return a;
         });
       }
@@ -483,16 +493,16 @@ function DashboardApp() {
       // Apply new impact
       if (updatedTx.type === 'income') {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === updatedTx.account_id ? { ...a, balance: a.balance + updatedTx.amount, updated_at: updatedTx.date } : a
+          a.id === updatedTx.account_id ? { ...a, balance: Math.round((a.balance + newAmt) * 100) / 100, updated_at: updatedTx.date } : a
         );
       } else if (updatedTx.type === 'expense') {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === updatedTx.account_id ? { ...a, balance: a.balance - updatedTx.amount, updated_at: updatedTx.date } : a
+          a.id === updatedTx.account_id ? { ...a, balance: Math.round((a.balance - newAmt) * 100) / 100, updated_at: updatedTx.date } : a
         );
       } else if (updatedTx.type === 'transfer' && updatedTx.to_account_id) {
         updatedAccounts = updatedAccounts.map((a) => {
-          if (a.id === updatedTx.account_id) return { ...a, balance: a.balance - updatedTx.amount, updated_at: updatedTx.date };
-          if (a.id === updatedTx.to_account_id) return { ...a, balance: a.balance + updatedTx.amount, updated_at: updatedTx.date };
+          if (a.id === updatedTx.account_id) return { ...a, balance: Math.round((a.balance - newAmt) * 100) / 100, updated_at: updatedTx.date };
+          if (a.id === updatedTx.to_account_id) return { ...a, balance: Math.round((a.balance + newAmt) * 100) / 100, updated_at: updatedTx.date };
           return a;
         });
       }
@@ -501,16 +511,17 @@ function DashboardApp() {
       StorageService.saveAccounts(updatedAccounts);
     }
 
-    const updatedList = transactions.map((t) => (t.id === updatedTx.id ? updatedTx : t));
+    const cleanUpdatedTx: Transaction = { ...updatedTx, amount: newAmt };
+    const updatedList = transactions.map((t) => (t.id === cleanUpdatedTx.id ? cleanUpdatedTx : t));
     setTransactions(updatedList);
     StorageService.saveTransactions(updatedList);
 
-    const newLogs = StorageService.addLog('UPDATE_TRANSACTION', `Transaksi dikemaskini: ${updatedTx.category} RM ${updatedTx.amount.toFixed(2)}`, user?.username);
+    const newLogs = StorageService.addLog('UPDATE_TRANSACTION', `Transaksi dikemaskini: ${cleanUpdatedTx.category} RM ${newAmt.toFixed(2)}`, user?.username);
     setLogs(newLogs);
 
-    addToast('success', `Transaksi ${updatedTx.category} berjaya dikemaskini.`);
+    addToast('success', `Transaksi ${cleanUpdatedTx.category} berjaya dikemaskini.`);
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
-    StorageService.enqueueSync('updateTransaction', updatedTx);
+    StorageService.enqueueSync('updateTransaction', cleanUpdatedTx);
   };
 
   // 7. Delete Transaction (Tong Sampah)
@@ -518,19 +529,20 @@ function DashboardApp() {
     const target = transactions.find((t) => t.id === id);
     let updatedAccounts = [...accounts];
     if (target) {
+      const tgtAmt = Number(target.amount) || 0;
       // Revert account balance automatically
       if (target.type === 'income') {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === target.account_id ? { ...a, balance: a.balance - target.amount } : a
+          a.id === target.account_id ? { ...a, balance: Math.round((a.balance - tgtAmt) * 100) / 100 } : a
         );
       } else if (target.type === 'expense') {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === target.account_id ? { ...a, balance: a.balance + target.amount } : a
+          a.id === target.account_id ? { ...a, balance: Math.round((a.balance + tgtAmt) * 100) / 100 } : a
         );
       } else if (target.type === 'transfer' && target.to_account_id) {
         updatedAccounts = updatedAccounts.map((a) => {
-          if (a.id === target.account_id) return { ...a, balance: a.balance + target.amount };
-          if (a.id === target.to_account_id) return { ...a, balance: a.balance - target.amount };
+          if (a.id === target.account_id) return { ...a, balance: Math.round((a.balance + tgtAmt) * 100) / 100 };
+          if (a.id === target.to_account_id) return { ...a, balance: Math.round((a.balance - tgtAmt) * 100) / 100 };
           return a;
         });
       }
@@ -543,7 +555,7 @@ function DashboardApp() {
     StorageService.saveTransactions(updated);
 
     if (target) {
-      const newLogs = StorageService.addLog('DELETE_TRANSACTION', `Transaksi dipadam: ${target.category} RM ${target.amount.toFixed(2)}`, user?.username);
+      const newLogs = StorageService.addLog('DELETE_TRANSACTION', `Transaksi dipadam: ${target.category} RM ${(Number(target.amount) || 0).toFixed(2)}`, user?.username);
       setLogs(newLogs);
     }
     addToast('info', 'Transaksi berjaya dipadam.');
