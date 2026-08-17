@@ -717,7 +717,89 @@ app.post("/api/gas-proxy", async (req, res) => {
       }
     }
 
-    // 5. Standard Native Apps Script Pass-Through with smart fallback
+    // 5. Handle recordTransfer / transferMoney / transfer
+    if (action === "recordTransfer" || action === "transferMoney" || action === "transfer" || action === "transfer_money") {
+      try {
+        const transferPayload = {
+          action: "transferMoney",
+          username: cleanUser,
+          from_account_id: data.from_account_id || data.from_account || data.from,
+          to_account_id: data.to_account_id || data.to_account || data.to,
+          from: data.from_account_id || data.from_account || data.from,
+          to: data.to_account_id || data.to_account || data.to,
+          amount: parseFloat(data.amount) || 0,
+          date: data.date || new Date().toISOString().split("T")[0],
+          note: data.note || "Pindahan Antara Akaun",
+          data: data,
+        };
+
+        // Update server database accounts and transactions if exists
+        const serverDb = readServerData();
+        if (serverDb && Array.isArray(serverDb.accounts)) {
+          const fromId = String(transferPayload.from_account_id || "").toLowerCase();
+          const toId = String(transferPayload.to_account_id || "").toLowerCase();
+          const amt = transferPayload.amount;
+
+          serverDb.accounts = serverDb.accounts.map((acc: any) => {
+            const accId = String(acc.id || acc.AccountID || "").toLowerCase();
+            const accName = String(acc.account_name || acc.AccountName || "").toLowerCase();
+            const bankName = String(acc.bank || acc.Bank || "").toLowerCase();
+
+            if (accId === fromId || accName.includes(fromId) || bankName.includes(fromId)) {
+              const cur = Number(acc.balance !== undefined ? acc.balance : acc.InitialBalance) || 0;
+              return { ...acc, balance: cur - amt, InitialBalance: cur - amt };
+            }
+            if (accId === toId || accName.includes(toId) || bankName.includes(toId)) {
+              const cur = Number(acc.balance !== undefined ? acc.balance : acc.InitialBalance) || 0;
+              return { ...acc, balance: cur + amt, InitialBalance: cur + amt };
+            }
+            return acc;
+          });
+
+          // Add transfer transactions
+          if (Array.isArray(serverDb.transactions)) {
+            serverDb.transactions.unshift(
+              {
+                id: `TX_TR_OUT_${Date.now()}`,
+                date: transferPayload.date,
+                type: "expense",
+                category: "Pindahan Keluar",
+                amount: amt,
+                account_id: transferPayload.from_account_id,
+                account_name: data.from_account_name || "Akaun Sumber",
+                note: transferPayload.note,
+                created_at: new Date().toISOString(),
+              },
+              {
+                id: `TX_TR_IN_${Date.now() + 1}`,
+                date: transferPayload.date,
+                type: "income",
+                category: "Pindahan Masuk",
+                amount: amt,
+                account_id: transferPayload.to_account_id,
+                account_name: data.to_account_name || "Akaun Penerima",
+                note: transferPayload.note,
+                created_at: new Date().toISOString(),
+              }
+            );
+          }
+          saveServerData(serverDb);
+        }
+
+        let transRes = await fetchGas("transferMoney", transferPayload);
+        if (!transRes || transRes.status === "error") {
+          transRes = await fetchGas("recordTransfer", transferPayload);
+        }
+        if (!transRes || transRes.status === "error") {
+          transRes = await fetchGas("transfer_money", transferPayload);
+        }
+        return res.json(transRes || { status: "success", message: "Pindahan dana berjaya disimpan." });
+      } catch (trErr) {
+        console.warn("GAS transfer fallback error:", trErr);
+      }
+    }
+
+    // 6. Standard Native Apps Script Pass-Through with smart fallback
     const directResult = await fetchGas(action);
     if (directResult && directResult.status === "error" && (directResult.message?.includes("tidak dikenali") || directResult.message?.includes("Unknown"))) {
       // Fallback to query transactions if unknown
