@@ -366,7 +366,16 @@ function DashboardApp() {
 
     addToast('success', `Pindahan RM ${transferData.amount.toFixed(2)} berjaya!`);
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedTxList }).catch(() => {});
-    StorageService.enqueueSync('recordTransfer', transferData);
+    
+    const fullTransferPayload = {
+      ...transferData,
+      from_account_name: `${fromAcc.bank} - ${fromAcc.account_name}`,
+      to_account_name: `${toAcc.bank} - ${toAcc.account_name}`,
+      from_bank: fromAcc.bank,
+      to_bank: toAcc.bank,
+      username: user?.username || 'user',
+    };
+    StorageService.enqueueSync('recordTransfer', fullTransferPayload);
   };
 
   // 5. Add Transaction (Income, Expense, Adjustment, or Scanned Receipt)
@@ -698,8 +707,7 @@ function DashboardApp() {
                   StorageService.saveAccounts(presetAccounts);
                   setAccounts(presetAccounts);
                   addToast('success', '11 Grid Institusi (16 Akaun) berjaya diaktifkan!');
-                  StorageService.syncWithGAS({
-                    action: 'batch_save_accounts',
+                  StorageService.syncWithGAS('batch_save_accounts', {
                     accounts: presetAccounts,
                     username: user?.username || 'admin',
                   }).catch(() => {});
