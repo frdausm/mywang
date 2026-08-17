@@ -24,7 +24,68 @@ export class StorageService {
     if (!Array.isArray(accounts) || accounts.length === 0) {
       return [...INITIAL_ACCOUNTS];
     }
-    const parsed = [...accounts];
+    
+    // 0. Clean & Merge duplicates (e.g. ACC_001, acc_mb_sav, etc.)
+    let parsed: Account[] = [];
+    const seenMap = new Map<string, Account>();
+
+    accounts.forEach((acc) => {
+      let a = { ...acc };
+      const rawBank = (a.bank || '').trim();
+      const rawName = (a.account_name || '').trim();
+      const rawNotes = (a.notes || '').trim();
+
+      // Fix legacy ACC_002 / CIMB Credit card
+      if (a.id === 'ACC_002' || (rawName.toLowerCase().includes('cimb') && rawNotes.toLowerCase().includes('credit card'))) {
+        a.bank = 'CIMB';
+        a.type = 'credit_card';
+        a.credit_limit = a.credit_limit || 5000;
+        if (!a.account_name.toLowerCase().includes('credit') && !a.account_name.toLowerCase().includes('petronas')) {
+          a.account_name = 'CIMB Petronas Visa Islamic Credit Card';
+        }
+      }
+
+      // Fix Maybank Petronas Credit Card
+      if (rawName.toLowerCase().includes('maybank') && rawName.toLowerCase().includes('petronas')) {
+        a.bank = 'Maybank';
+        a.type = 'credit_card';
+        a.credit_limit = a.credit_limit || 8000;
+      }
+
+      // Fix RHB Credit Card
+      if (rawName.toLowerCase().includes('rhb') && (rawName.toLowerCase().includes('credit') || rawName.toLowerCase().includes('cashback'))) {
+        a.bank = 'RHB Bank';
+        a.type = 'credit_card';
+        a.credit_limit = a.credit_limit || 6000;
+      }
+
+      // Deduplicate key: if an account is duplicate (e.g. Maybank Savings Account vs Maybank ACC_001), unify them
+      let dedupeKey = a.id;
+      if (a.id === 'ACC_001' && accounts.some((x) => x.id === 'acc_mb_sav')) {
+        // Keep non-zero balance from either
+        dedupeKey = 'acc_mb_sav';
+      }
+      if (a.id === 'ACC_002' && accounts.some((x) => x.id === 'acc_cimb_cc')) {
+        dedupeKey = 'acc_cimb_cc';
+      }
+
+      const existing = seenMap.get(dedupeKey);
+      if (existing) {
+        // Merge: prefer non-zero balance and richer metadata
+        seenMap.set(dedupeKey, {
+          ...existing,
+          ...a,
+          id: dedupeKey,
+          balance: (a.balance !== 0 || existing.balance === 0) ? a.balance : existing.balance,
+          credit_limit: a.credit_limit || existing.credit_limit,
+          notes: a.notes || existing.notes,
+        });
+      } else {
+        seenMap.set(dedupeKey, { ...a, id: dedupeKey });
+      }
+    });
+
+    parsed = Array.from(seenMap.values());
 
     // 1. Ensure Atome - PayLater
     const hasAtomePL = parsed.some(
@@ -71,6 +132,7 @@ export class StorageService {
       if (parsed[migaIdx].balance === 0 || parsed[migaIdx].balance === 48.66) {
         parsed[migaIdx].balance = 49.43;
       }
+      parsed[migaIdx].bank = 'Maybank';
       parsed[migaIdx].weight_grams = parsed[migaIdx].weight_grams || 0.088;
       parsed[migaIdx].avg_price_per_gram = parsed[migaIdx].avg_price_per_gram || 604.79;
       parsed[migaIdx].total_invested = parsed[migaIdx].total_invested || 51.73;
