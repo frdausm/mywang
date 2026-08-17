@@ -76,7 +76,7 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
     updated_at: '2026-08-16',
   },
 
-  // 4. Touch 'n Go eWallet
+  // 4. Touch 'n Go eWallet & GO+
   {
     id: 'acc_tng_wallet',
     bank: "Touch 'n Go eWallet",
@@ -87,6 +87,17 @@ export const INSTITUTION_ACCOUNTS_PRESET: Account[] = [
     icon: 'Smartphone',
     notes: 'Tol RFID, Street parking & QR',
     updated_at: '2026-08-16',
+  },
+  {
+    id: 'acc_tng_goplus',
+    bank: "Touch 'n Go eWallet",
+    account_name: "Touch 'n Go GO+",
+    type: 'investment',
+    balance: 0.00,
+    color: 'from-sky-500 to-blue-700',
+    icon: 'TrendingUp',
+    notes: 'Principal e-Cash Fund - Pulangan Harian (Daily Return)',
+    updated_at: '2026-08-17',
   },
 
   // 5. Boost
