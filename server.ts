@@ -667,15 +667,58 @@ app.post("/api/gas-proxy", async (req, res) => {
     // 3. Handle addTransaction / add_transaction
     if (action === "addTransaction" || action === "add_transaction") {
       try {
+        const txType = String(data.type || "expense").toLowerCase();
+        const amt = parseFloat(data.amount) || 0;
+        const targetAccId = String(data.account_id || "").toLowerCase();
+        const targetAccName = String(data.account_name || "").toLowerCase();
+
+        // Update server database accounts and transactions if exists
+        const serverDb = readServerData();
+        if (serverDb) {
+          if (Array.isArray(serverDb.accounts)) {
+            serverDb.accounts = serverDb.accounts.map((acc: any) => {
+              const accId = String(acc.id || acc.AccountID || "").toLowerCase();
+              const accName = String(acc.account_name || acc.AccountName || "").toLowerCase();
+              const bankName = String(acc.bank || acc.Bank || "").toLowerCase();
+
+              if (
+                accId === targetAccId ||
+                (targetAccId && (accName.includes(targetAccId) || bankName.includes(targetAccId))) ||
+                (targetAccName && (accName.includes(targetAccName) || bankName.includes(targetAccName)))
+              ) {
+                const cur = Number(acc.balance !== undefined ? acc.balance : acc.InitialBalance) || 0;
+                const newBal = txType === "income" ? cur + amt : cur - amt;
+                return { ...acc, balance: newBal, InitialBalance: newBal };
+              }
+              return acc;
+            });
+          }
+          if (Array.isArray(serverDb.transactions)) {
+            serverDb.transactions.unshift({
+              id: data.id || `TX_${Date.now()}`,
+              date: data.date || new Date().toISOString().split("T")[0],
+              type: txType,
+              category: data.category || "Lain-lain",
+              amount: amt,
+              account_id: data.account_id,
+              account_name: data.account_name,
+              note: data.note || "",
+              receipt_url: data.receipt_url || undefined,
+              created_at: new Date().toISOString(),
+            });
+          }
+          saveServerData(serverDb);
+        }
+
         const addPayload = {
           action: "add_transaction",
           username: cleanUser,
-          type: data.type || "expense",
+          type: txType,
           date: data.date,
           category: data.category,
           method: data.method || "QR Code",
           source: data.account_name || "Maybank",
-          amount: parseFloat(data.amount) || 0,
+          amount: amt,
           discount: parseFloat(data.discount) || 0,
           note: data.note || "",
           receipt: data.receipt_url || null,
@@ -686,9 +729,7 @@ app.post("/api/gas-proxy", async (req, res) => {
         if (!addRes || addRes.status === "error") {
           addRes = await fetchGas("addTransaction", { action: "addTransaction", data, username: cleanUser });
         }
-        if (addRes && addRes.status === "success") {
-          return res.json(addRes);
-        }
+        return res.json(addRes || { status: "success", message: "Transaksi berjaya disimpan." });
       } catch (addErr) {
         console.warn("GAS add_transaction fallback error:", addErr);
       }
