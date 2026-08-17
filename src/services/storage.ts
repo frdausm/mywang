@@ -145,6 +145,8 @@ export class StorageService {
   static saveAccounts(accounts: Account[]) {
     try {
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+      // Auto persist immediately to backend server
+      this.saveToBackendServer({ accounts }).catch(() => {});
     } catch (e) {}
   }
 
@@ -168,6 +170,7 @@ export class StorageService {
   static saveLoans(loans: LoanFinancing[]) {
     try {
       localStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(loans));
+      this.saveToBackendServer({ loans }).catch(() => {});
     } catch (e) {}
   }
 
@@ -201,6 +204,7 @@ export class StorageService {
   static saveTransactions(transactions: Transaction[]) {
     try {
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
+      this.saveToBackendServer({ transactions }).catch(() => {});
     } catch (e) {}
   }
 
@@ -246,6 +250,7 @@ export class StorageService {
     try {
       localStorage.setItem(STORAGE_KEYS.INCOME_TYPES, JSON.stringify(incomeTypes));
       localStorage.setItem(STORAGE_KEYS.EXPENSE_TYPES, JSON.stringify(expenseTypes));
+      this.saveToBackendServer({ incomeTypes, expenseTypes }).catch(() => {});
     } catch (e) {}
   }
 
