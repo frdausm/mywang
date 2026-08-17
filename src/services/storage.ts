@@ -20,6 +20,109 @@ export class StorageService {
   /**
    * Get Accounts
    */
+  static normalizeAccounts(accounts: Account[]): Account[] {
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return [...INITIAL_ACCOUNTS];
+    }
+    const parsed = [...accounts];
+
+    // 1. Ensure Atome - PayLater
+    const hasAtomePL = parsed.some(
+      (a) =>
+        a.id === 'acc_atome_pl' ||
+        ((a.bank?.toLowerCase().includes('atome') || a.id?.toLowerCase().includes('atome')) &&
+          (a.account_name?.toLowerCase().includes('paylater') || a.type === 'paylater'))
+    );
+    if (!hasAtomePL) {
+      parsed.push({
+        id: 'acc_atome_pl',
+        bank: 'Atome',
+        account_name: 'PayLater',
+        type: 'paylater',
+        balance: 0.00,
+        credit_limit: 1500.00,
+        color: 'from-lime-400 to-yellow-500',
+        icon: 'Clock',
+        notes: 'Atome 3-bulan ansuran 0% faedah',
+        updated_at: '2026-08-17',
+      });
+    }
+
+    // 2. Ensure Maybank Islamic Gold Account (MIGA-i)
+    const migaIdx = parsed.findIndex(
+      (a) => a.id === 'acc_miga_gold' || a.id === 'acc_mb_miga' || a.account_name?.toLowerCase().includes('miga')
+    );
+    if (migaIdx === -1) {
+      parsed.push({
+        id: 'acc_miga_gold',
+        bank: 'Maybank',
+        account_name: 'MIGA-i Gold (0.088g)',
+        type: 'gold',
+        balance: 49.43,
+        weight_grams: 0.088,
+        avg_price_per_gram: 604.79,
+        total_invested: 51.73,
+        color: 'from-amber-400 via-amber-500 to-yellow-600',
+        icon: 'Sparkles',
+        notes: 'Maybank MIGA-i 764018601800 (0.088g @ RM604.79/g, Nilai: RM49.43)',
+        updated_at: '2026-08-17',
+      });
+    } else {
+      if (parsed[migaIdx].balance === 0 || parsed[migaIdx].balance === 48.66) {
+        parsed[migaIdx].balance = 49.43;
+      }
+      parsed[migaIdx].weight_grams = parsed[migaIdx].weight_grams || 0.088;
+      parsed[migaIdx].avg_price_per_gram = parsed[migaIdx].avg_price_per_gram || 604.79;
+      parsed[migaIdx].total_invested = parsed[migaIdx].total_invested || 51.73;
+    }
+
+    // 3. Ensure ASNB - ASB (Amanah Saham Bumiputera)
+    const asbIdx = parsed.findIndex(
+      (a) => a.id === 'acc_asnb_asb' || (a.account_name?.toLowerCase().includes('bumiputera') || a.account_name?.toLowerCase().includes('asb'))
+    );
+    if (asbIdx === -1) {
+      parsed.push({
+        id: 'acc_asnb_asb',
+        bank: 'ASNB',
+        account_name: 'Amanah Saham Bumiputera (ASB)',
+        type: 'investment',
+        balance: 227.09,
+        fund_name: 'Amanah Saham Bumiputera',
+        account_number: '000007814094',
+        color: 'from-blue-700 to-sky-900',
+        icon: 'Coins',
+        notes: 'Firdaus Bin Mohd Pauzi - ASB (000007814094)',
+        updated_at: '2026-08-17',
+      });
+    } else if (parsed[asbIdx].balance === 0) {
+      parsed[asbIdx].balance = 227.09;
+    }
+
+    // 4. Ensure ASNB - ASN (Amanah Saham Nasional)
+    const asnIdx = parsed.findIndex(
+      (a) => a.id === 'acc_asnb_asn' || (a.account_name?.toLowerCase().includes('nasional') && !a.account_name?.toLowerCase().includes('bumiputera'))
+    );
+    if (asnIdx === -1) {
+      parsed.push({
+        id: 'acc_asnb_asn',
+        bank: 'ASNB',
+        account_name: 'Amanah Saham Nasional (ASN)',
+        type: 'investment',
+        balance: 16.81,
+        fund_name: 'Amanah Saham Nasional',
+        account_number: '000007814094',
+        color: 'from-blue-600 to-indigo-800',
+        icon: 'Coins',
+        notes: 'Firdaus Bin Mohd Pauzi - ASN (000007814094)',
+        updated_at: '2026-08-17',
+      });
+    } else if (parsed[asnIdx].balance === 0 || parsed[asnIdx].balance === 16.83) {
+      parsed[asnIdx].balance = 16.81;
+    }
+
+    return parsed;
+  }
+
   static getAccounts(): Account[] {
     const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
     if (!raw) {
@@ -28,7 +131,12 @@ export class StorageService {
     }
     try {
       const parsed: Account[] = JSON.parse(raw);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_ACCOUNTS;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = this.normalizeAccounts(parsed);
+        this.saveAccounts(normalized);
+        return normalized;
+      }
+      return INITIAL_ACCOUNTS;
     } catch {
       return INITIAL_ACCOUNTS;
     }
@@ -450,6 +558,7 @@ export class StorageService {
       if (json && json.status === 'success' && json.data) {
         const data = json.data;
         if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
+          data.accounts = this.normalizeAccounts(data.accounts);
           this.saveAccounts(data.accounts);
         }
         if (data.transactions && Array.isArray(data.transactions)) {
