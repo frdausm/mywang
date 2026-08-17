@@ -18,22 +18,24 @@ const STORAGE_KEYS = {
 
 export class StorageService {
   /**
-   * Get Accounts
+   * Normalize & Clean Accounts (No unwanted ghost injections)
    */
   static normalizeAccounts(accounts: Account[]): Account[] {
     if (!Array.isArray(accounts) || accounts.length === 0) {
       return [...INITIAL_ACCOUNTS];
     }
     
-    // 0. Clean & Merge duplicates (e.g. ACC_001, acc_mb_sav, etc.)
+    // 0. Clean & Merge duplicates
     let parsed: Account[] = [];
     const seenMap = new Map<string, Account>();
 
     accounts.forEach((acc) => {
+      if (!acc || typeof acc !== 'object') return;
       let a = { ...acc };
       const rawBank = (a.bank || '').trim();
       const rawName = (a.account_name || '').trim();
       const rawNotes = (a.notes || '').trim();
+      a.balance = Math.round((Number(a.balance) || 0) * 100) / 100;
 
       // Fix legacy ACC_002 / CIMB Credit card
       if (a.id === 'ACC_002' || (rawName.toLowerCase().includes('cimb') && rawNotes.toLowerCase().includes('credit card'))) {
@@ -59,7 +61,7 @@ export class StorageService {
         a.credit_limit = a.credit_limit || 6000;
       }
 
-      // Deduplicate key: if an account is duplicate (e.g. Maybank Savings Account vs Maybank ACC_001), unify them
+      // Deduplicate key
       let dedupeKey = a.id;
       if (a.id === 'ACC_001' && accounts.some((x) => x.id === 'acc_mb_sav')) {
         dedupeKey = 'acc_mb_sav';
@@ -73,7 +75,7 @@ export class StorageService {
 
       const existing = seenMap.get(dedupeKey);
       if (existing) {
-        // Merge: prefer non-zero balance and richer metadata
+        // Merge: keep non-zero balance and preserve user notes
         seenMap.set(dedupeKey, {
           ...existing,
           ...a,
@@ -89,135 +91,36 @@ export class StorageService {
 
     parsed = Array.from(seenMap.values());
 
-    // Ensure Touch 'n Go eWallet
-    const tngWalletIdx = parsed.findIndex(
-      (a) => a.id === 'acc_tng_wallet' || (a.bank?.toLowerCase().includes('touch') && !a.account_name?.toLowerCase().includes('go+'))
+    // 1. Remove phantom 0.00 duplicates created by preset injection if user has their real account
+    // Example: User has "Maybank" (Akaun Gaji, 328.39) AND preset added "Savings Account" (0.00)
+    const hasCustomMaybankSavings = parsed.some(
+      (a) => a.bank.toLowerCase().includes('maybank') && a.type === 'bank' && a.id !== 'acc_mb_sav' && (a.balance !== 0 || a.account_name.toLowerCase().includes('gaji'))
     );
-    if (tngWalletIdx === -1) {
-      parsed.push({
-        id: 'acc_tng_wallet',
-        bank: "Touch 'n Go eWallet",
-        account_name: "Touch 'n Go eWallet",
-        type: 'ewallet',
-        balance: 0.00,
-        color: 'from-blue-500 to-indigo-600',
-        icon: 'Smartphone',
-        notes: 'Tol RFID, Street parking & QR',
-        updated_at: '2026-08-17',
-      });
+    if (hasCustomMaybankSavings) {
+      parsed = parsed.filter((a) => !(a.id === 'acc_mb_sav' && a.balance === 0 && a.account_name === 'Savings Account'));
     }
 
-    // Ensure Touch 'n Go GO+ (Principal e-Cash Investment / Daily Return)
-    const tngGoPlusIdx = parsed.findIndex(
-      (a) => a.id === 'acc_tng_goplus' || a.account_name?.toLowerCase().includes('go+') || a.account_name?.toLowerCase().includes('goplus')
+    // Example: User has "Maybank Petronas Ikhwan Islamic..." (-563.73) AND preset added "Credit Card Ikhwan Islamic" (0.00)
+    const hasCustomMaybankCC = parsed.some(
+      (a) => a.bank.toLowerCase().includes('maybank') && a.type === 'credit_card' && a.id !== 'acc_mb_cc' && (a.balance !== 0 || a.account_name.toLowerCase().includes('petronas'))
     );
-    if (tngGoPlusIdx === -1) {
-      parsed.push({
-        id: 'acc_tng_goplus',
-        bank: "Touch 'n Go eWallet",
-        account_name: "Touch 'n Go GO+",
-        type: 'investment',
-        balance: 0.00,
-        color: 'from-sky-500 to-blue-700',
-        icon: 'TrendingUp',
-        notes: 'Principal e-Cash Fund - Pulangan Harian (Daily Return)',
-        updated_at: '2026-08-17',
-      });
+    if (hasCustomMaybankCC) {
+      parsed = parsed.filter((a) => !(a.id === 'acc_mb_cc' && a.balance === 0 && a.account_name === 'Credit Card Ikhwan Islamic'));
     }
 
-    // 1. Ensure Atome - PayLater
-    const hasAtomePL = parsed.some(
-      (a) =>
-        a.id === 'acc_atome_pl' ||
-        ((a.bank?.toLowerCase().includes('atome') || a.id?.toLowerCase().includes('atome')) &&
-          (a.account_name?.toLowerCase().includes('paylater') || a.type === 'paylater'))
-    );
-    if (!hasAtomePL) {
-      parsed.push({
-        id: 'acc_atome_pl',
-        bank: 'Atome',
-        account_name: 'PayLater',
-        type: 'paylater',
-        balance: 0.00,
-        credit_limit: 1500.00,
-        color: 'from-lime-400 to-yellow-500',
-        icon: 'Clock',
-        notes: 'Atome 3-bulan ansuran 0% faedah',
-        updated_at: '2026-08-17',
-      });
-    }
-
-    // 2. Ensure Maybank Islamic Gold Account (MIGA-i)
-    const migaIdx = parsed.findIndex(
-      (a) => a.id === 'acc_miga_gold' || a.id === 'acc_mb_miga' || a.account_name?.toLowerCase().includes('miga')
-    );
-    if (migaIdx === -1) {
-      parsed.push({
-        id: 'acc_miga_gold',
-        bank: 'Maybank',
-        account_name: 'MIGA-i Gold (0.088g)',
-        type: 'gold',
-        balance: 49.43,
-        weight_grams: 0.088,
-        avg_price_per_gram: 604.79,
-        total_invested: 51.73,
-        color: 'from-amber-400 via-amber-500 to-yellow-600',
-        icon: 'Sparkles',
-        notes: 'Maybank MIGA-i 764018601800 (0.088g @ RM604.79/g, Nilai: RM49.43)',
-        updated_at: '2026-08-17',
-      });
-    } else {
-      if (parsed[migaIdx].balance === 0 || parsed[migaIdx].balance === 48.66) {
-        parsed[migaIdx].balance = 49.43;
+    // Example: User has TNG eWallet AND preset added unwanted 0.00 TNG GO+
+    const tngAccounts = parsed.filter((a) => (a.bank || '').toLowerCase().includes('touch') || (a.bank || '').toLowerCase().includes('tng') || (a.id || '').includes('tng'));
+    if (tngAccounts.length > 1) {
+      const realTng = tngAccounts.find((a) => a.balance !== 0 || (a.notes && a.notes.includes('Tol')));
+      const dummyGoPlus = tngAccounts.find((a) => a.id === 'acc_tng_goplus' && a.balance === 0);
+      if (realTng && dummyGoPlus && realTng.id !== dummyGoPlus.id) {
+        // If dummy GO+ was auto added with 0 balance, only keep if user actually has transactions for it
+        const txs = this.getTransactions();
+        const hasTx = txs.some((t) => t.account_id === dummyGoPlus.id);
+        if (!hasTx) {
+          parsed = parsed.filter((a) => a.id !== dummyGoPlus.id);
+        }
       }
-      parsed[migaIdx].bank = 'Maybank';
-      parsed[migaIdx].weight_grams = parsed[migaIdx].weight_grams || 0.088;
-      parsed[migaIdx].avg_price_per_gram = parsed[migaIdx].avg_price_per_gram || 604.79;
-      parsed[migaIdx].total_invested = parsed[migaIdx].total_invested || 51.73;
-    }
-
-    // 3. Ensure ASNB - ASB (Amanah Saham Bumiputera)
-    const asbIdx = parsed.findIndex(
-      (a) => a.id === 'acc_asnb_asb' || (a.account_name?.toLowerCase().includes('bumiputera') || a.account_name?.toLowerCase().includes('asb'))
-    );
-    if (asbIdx === -1) {
-      parsed.push({
-        id: 'acc_asnb_asb',
-        bank: 'ASNB',
-        account_name: 'Amanah Saham Bumiputera (ASB)',
-        type: 'investment',
-        balance: 227.09,
-        fund_name: 'Amanah Saham Bumiputera',
-        account_number: '000007814094',
-        color: 'from-blue-700 to-sky-900',
-        icon: 'Coins',
-        notes: 'Firdaus Bin Mohd Pauzi - ASB (000007814094)',
-        updated_at: '2026-08-17',
-      });
-    } else if (parsed[asbIdx].balance === 0) {
-      parsed[asbIdx].balance = 227.09;
-    }
-
-    // 4. Ensure ASNB - ASN (Amanah Saham Nasional)
-    const asnIdx = parsed.findIndex(
-      (a) => a.id === 'acc_asnb_asn' || (a.account_name?.toLowerCase().includes('nasional') && !a.account_name?.toLowerCase().includes('bumiputera'))
-    );
-    if (asnIdx === -1) {
-      parsed.push({
-        id: 'acc_asnb_asn',
-        bank: 'ASNB',
-        account_name: 'Amanah Saham Nasional (ASN)',
-        type: 'investment',
-        balance: 16.81,
-        fund_name: 'Amanah Saham Nasional',
-        account_number: '000007814094',
-        color: 'from-blue-600 to-indigo-800',
-        icon: 'Coins',
-        notes: 'Firdaus Bin Mohd Pauzi - ASN (000007814094)',
-        updated_at: '2026-08-17',
-      });
-    } else if (parsed[asnIdx].balance === 0 || parsed[asnIdx].balance === 16.83) {
-      parsed[asnIdx].balance = 16.81;
     }
 
     return parsed;
