@@ -929,9 +929,31 @@ export class StorageService {
 
         // Normalize transactions and accounts
         const normalizedTxs = this.normalizeRawTransactions(gasTxs);
-        let normalizedAccs = this.normalizeRawAccounts(gasAccs);
+        let normalizedAccs: Account[] = [];
 
-        if (normalizedAccs.length > 0) {
+        if (Array.isArray(gasAccs) && gasAccs.length > 0) {
+          const rawParsedAccs = this.normalizeRawAccounts(gasAccs);
+          // Merge with current local accounts so user's existing balances (e.g. MIGA, ASNB, etc.) are never wiped
+          const existingAccs = this.getAccounts();
+          const mergedMap = new Map<string, Account>();
+          existingAccs.forEach((a) => mergedMap.set(a.id, a));
+          rawParsedAccs.forEach((incoming) => {
+            const current = mergedMap.get(incoming.id);
+            if (current) {
+              mergedMap.set(incoming.id, {
+                ...current,
+                ...incoming,
+                // If incoming from GAS has 0 balance but current has real non-zero balance, preserve current
+                balance: (incoming.balance !== 0 || current.balance === 0) ? incoming.balance : current.balance,
+                weight_grams: incoming.weight_grams || current.weight_grams,
+                avg_price_per_gram: incoming.avg_price_per_gram || current.avg_price_per_gram,
+                total_invested: incoming.total_invested || current.total_invested,
+              });
+            } else {
+              mergedMap.set(incoming.id, incoming);
+            }
+          });
+          normalizedAccs = this.normalizeAccounts(Array.from(mergedMap.values()));
           this.saveAccounts(normalizedAccs);
         } else {
           normalizedAccs = this.getAccounts();
