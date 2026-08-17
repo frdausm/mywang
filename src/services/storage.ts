@@ -65,8 +65,8 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
 
   // Helper to render account type icon
   const renderAccountIcon = (acc: Account) => {
-    if (acc.type === 'gold') return <Sparkles className="w-4 h-4 text-amber-500" />;
-    if (acc.type === 'investment') return <Coins className="w-4 h-4 text-teal-500" />;
+    if (acc.type === 'gold') return 'Sparkles';
+    if (acc.type === 'investment') return 'Coins';
     if (acc.type === 'cash') return <Wallet className="w-4 h-4 text-emerald-500" />;
     if (acc.type === 'bank') return <Landmark className="w-4 h-4" />;
     if (acc.type === 'ewallet') return <Smartphone className="w-4 h-4" />;
