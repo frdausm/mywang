@@ -616,15 +616,56 @@ export class StorageService {
 
     const mapSourceToId = (source: string): string => {
       const s = String(source || '').toLowerCase();
-      if (s.includes('go+') || s.includes('goplus')) return 'acc_tng_goplus';
-      if (s.includes('touch') || s.includes('tng')) return 'acc_tng_wallet';
-      if (s.includes('maybank') || s.includes('mae')) return 'acc_mb_sav';
-      if (s.includes('rhb')) return 'acc_rhb_sav';
-      if (s.includes('atome')) return 'acc_atome_pl';
-      if (s.includes('tunai') || s.includes('cash')) return 'acc_cash_fizikal';
+      const existingAccounts = this.getAccounts();
+      
+      // Exact account name or bank matching first
+      const exactMatch = existingAccounts.find((a) => {
+        const full = `${a.bank} - ${a.account_name}`.toLowerCase();
+        const aName = (a.account_name || '').toLowerCase();
+        const aBank = (a.bank || '').toLowerCase();
+        const aId = (a.id || '').toLowerCase();
+        return s === full || s === aName || s === aBank || s === aId;
+      });
+      if (exactMatch) return exactMatch.id;
+
+      if (s.includes('go+') || s.includes('goplus')) {
+        const goAcc = existingAccounts.find((a) => a.account_name.toLowerCase().includes('go+') || a.id === 'acc_1786841487737' || a.id === 'acc_tng_goplus');
+        return goAcc ? goAcc.id : 'acc_1786841487737';
+      }
+      if (s.includes('touch') || s.includes('tng')) {
+        const tngAcc = existingAccounts.find((a) => !a.account_name.toLowerCase().includes('go+') && (a.bank.toLowerCase().includes('touch') || a.id === 'ACC_003' || a.id === 'acc_tng_wallet' || a.id === 'acc_tng_ewallet'));
+        return tngAcc ? tngAcc.id : 'ACC_003';
+      }
+      if (s.includes('maybank') || s.includes('mae')) {
+        if (s.includes('credit') || s.includes('card') || s.includes('petronas') || s.includes('ikhwan')) {
+          const mbCc = existingAccounts.find((a) => a.type === 'credit_card' && a.bank.toLowerCase().includes('maybank'));
+          return mbCc ? mbCc.id : 'acc_1786843686714';
+        }
+        const mbSav = existingAccounts.find((a) => a.type === 'bank' && a.bank.toLowerCase().includes('maybank'));
+        return mbSav ? mbSav.id : 'ACC_001';
+      }
+      if (s.includes('rhb')) {
+        if (s.includes('credit') || s.includes('card') || s.includes('cashback')) {
+          const rhbCc = existingAccounts.find((a) => a.type === 'credit_card' && a.bank.toLowerCase().includes('rhb'));
+          return rhbCc ? rhbCc.id : 'acc_rhb_cc';
+        }
+        const rhbSav = existingAccounts.find((a) => a.bank.toLowerCase().includes('rhb'));
+        return rhbSav ? rhbSav.id : 'acc_rhb_cc';
+      }
+      if (s.includes('atome')) {
+        const atomeAcc = existingAccounts.find((a) => a.bank.toLowerCase().includes('atome'));
+        return atomeAcc ? atomeAcc.id : 'acc_atome_card';
+      }
+      if (s.includes('tunai') || s.includes('cash')) {
+        const cashAcc = existingAccounts.find((a) => a.type === 'cash');
+        return cashAcc ? cashAcc.id : 'ACC_004';
+      }
       if (s.includes('gx')) return 'acc_gx_sav';
-      if (s.includes('aeon')) return 'acc_aeon_sav';
-      if (s.includes('cimb')) return 'acc_cimb_cc';
+      if (s.includes('aeon')) {
+        const aeonAcc = existingAccounts.find((a) => a.bank.toLowerCase().includes('aeon'));
+        return aeonAcc ? aeonAcc.id : 'acc_aeon_pot';
+      }
+      if (s.includes('cimb')) return 'ACC_002';
       if (s.includes('asb') || s.includes('bumiputera')) return 'acc_asnb_asb';
       if (s.includes('asn') || s.includes('nasional')) return 'acc_asnb_asn';
       if (s.includes('ssp')) return 'acc_bsn_ssp_40';
@@ -632,7 +673,7 @@ export class StorageService {
       if (s.includes('shopee')) return 'acc_shopeepay';
       if (s.includes('setel')) return 'acc_setel';
       if (s.includes('boost')) return 'acc_boost';
-      return 'acc_mb_sav';
+      return 'ACC_001';
     };
 
     return rawList.map((tx: any, idx: number) => {
@@ -956,7 +997,9 @@ export class StorageService {
         }
 
         if (normalizedTxs.length > 0) {
-          this.saveTransactions(normalizedTxs);
+          const currentLocalTxs = this.getTransactions();
+          const combinedTxs = this.mergeAndDeduplicateTransactions(currentLocalTxs, normalizedTxs);
+          this.saveTransactions(combinedTxs);
         }
 
         config.isConnected = true;
