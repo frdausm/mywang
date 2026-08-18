@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Account, Transaction } from '../types';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, getMalaysiaDateString } from '../utils/formatters';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -47,97 +47,107 @@ export const AnalyticsCharts: React.FC<AnalyticsChartsProps> = ({
   const gridColor = darkMode ? 'rgba(51, 65, 85, 0.4)' : 'rgba(226, 232, 240, 0.8)';
 
   // 1. Account Distribution Data (Doughnut)
-  const positiveAccounts = accounts.filter((a) => a.balance > 0);
-  const doughnutData = {
-    labels: positiveAccounts.map((a) => `${a.bank} - ${a.account_name}`),
-    datasets: [
-      {
-        data: positiveAccounts.map((a) => a.balance),
-        backgroundColor: [
-          '#10B981', '#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899',
-          '#14B8A6', '#F97316', '#06B6D4', '#6366F1', '#84CC16',
-          '#A855F7', '#E11D48',
-        ],
-        borderWidth: 2,
-        borderColor: darkMode ? '#0F172A' : '#FFFFFF',
-      },
-    ],
-  };
+  const positiveAccounts = useMemo(() => {
+    return accounts.filter((a) => a.balance > 0);
+  }, [accounts]);
 
-  // 2. Income vs Expense Data
-  // Group by Month or Day
-  const now = new Date();
-  const months = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis'];
-  
-  // Calculate for last 6 months
-  const monthlyData: { [key: string]: { income: number; expense: number } } = {};
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = `${months[d.getMonth()]} ${d.getFullYear().toString().slice(2)}`;
-    monthlyData[key] = { income: 0, expense: 0 };
-  }
+  const doughnutData = useMemo(() => {
+    return {
+      labels: positiveAccounts.map((a) => `${a.bank} - ${a.account_name}`),
+      datasets: [
+        {
+          data: positiveAccounts.map((a) => a.balance),
+          backgroundColor: [
+            '#10B981', '#3B82F6', '#F59E0B', '#8B5CF6', '#EC4899',
+            '#14B8A6', '#F97316', '#06B6D4', '#6366F1', '#84CC16',
+            '#A855F7', '#E11D48',
+          ],
+          borderWidth: 2,
+          borderColor: darkMode ? '#0F172A' : '#FFFFFF',
+        },
+      ],
+    };
+  }, [positiveAccounts, darkMode]);
 
-  transactions.forEach((tx) => {
-    if (tx.date) {
-      const ym = tx.date.slice(0, 7);
-      if (monthlyData[ym]) {
-        if (tx.type === 'income') {
-          monthlyData[ym].income += Number(tx.amount) || 0;
-        } else if (tx.type === 'expense') {
-          monthlyData[ym].expense += Number(tx.amount) || 0;
+  // 2. Income vs Expense Data (6 Months)
+  const barData = useMemo(() => {
+    const myDateStr = getMalaysiaDateString();
+    const [currentYear, currentMonthNum] = myDateStr.split('-').map(Number);
+    const now = new Date(currentYear, currentMonthNum - 1, 1);
+    const months = ['Jan', 'Feb', 'Mac', 'Apr', 'Mei', 'Jun', 'Jul', 'Ogo', 'Sep', 'Okt', 'Nov', 'Dis'];
+    
+    const monthlyData: { [key: string]: { income: number; expense: number } } = {};
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthlyData[key] = { income: 0, expense: 0 };
+    }
+
+    transactions.forEach((tx) => {
+      if (tx.date) {
+        const ym = tx.date.slice(0, 7);
+        if (monthlyData[ym]) {
+          if (tx.type === 'income') {
+            monthlyData[ym].income += Number(tx.amount) || 0;
+          } else if (tx.type === 'expense') {
+            monthlyData[ym].expense += Number(tx.amount) || 0;
+          }
         }
       }
-    }
-  });
-
-  const barLabels = Object.keys(monthlyData).map((ym) => {
-    const [y, m] = ym.split('-');
-    return `${months[parseInt(m) - 1]} ${y.slice(2)}`;
-  });
-
-  const barData = {
-    labels: barLabels,
-    datasets: [
-      {
-        label: 'Duit Masuk (RM)',
-        data: Object.values(monthlyData).map((m) => m.income),
-        backgroundColor: 'rgba(16, 185, 129, 0.85)',
-        borderRadius: 8,
-      },
-      {
-        label: 'Duit Keluar (RM)',
-        data: Object.values(monthlyData).map((m) => m.expense),
-        backgroundColor: 'rgba(239, 68, 68, 0.85)',
-        borderRadius: 8,
-      },
-    ],
-  };
-
-  // 3. Expense Categories Breakdown (Horizontal Bar)
-  const expenseByCategory: { [cat: string]: number } = {};
-  transactions
-    .filter((t) => t.type === 'expense')
-    .forEach((t) => {
-      const c = t.category || 'Lain-lain';
-      expenseByCategory[c] = (expenseByCategory[c] || 0) + (Number(t.amount) || 0);
     });
 
-  const sortedCategories = Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const barLabels = Object.keys(monthlyData).map((ym) => {
+      const [y, m] = ym.split('-');
+      return `${months[parseInt(m) - 1]} ${y.slice(2)}`;
+    });
 
-  const categoryBarData = {
-    labels: sortedCategories.map((s) => s[0]),
-    datasets: [
-      {
-        label: 'Jumlah Belanja (RM)',
-        data: sortedCategories.map((s) => s[1]),
-        backgroundColor: [
-          '#F43F5E', '#FB923C', '#FBBF24', '#A855F7', '#38BDF8', '#4ADE80'
-        ],
-        borderRadius: 6,
-      },
-    ],
-  };
+    return {
+      labels: barLabels,
+      datasets: [
+        {
+          label: 'Duit Masuk (RM)',
+          data: Object.values(monthlyData).map((m) => m.income),
+          backgroundColor: 'rgba(16, 185, 129, 0.85)',
+          borderRadius: 8,
+        },
+        {
+          label: 'Duit Keluar (RM)',
+          data: Object.values(monthlyData).map((m) => m.expense),
+          backgroundColor: 'rgba(239, 68, 68, 0.85)',
+          borderRadius: 8,
+        },
+      ],
+    };
+  }, [transactions]);
+
+  // 3. Expense Categories Breakdown
+  const sortedCategories = useMemo(() => {
+    const expenseByCategory: { [cat: string]: number } = {};
+    transactions
+      .filter((t) => t.type === 'expense')
+      .forEach((t) => {
+        const c = t.category || 'Lain-lain';
+        expenseByCategory[c] = (expenseByCategory[c] || 0) + (Number(t.amount) || 0);
+      });
+
+    return Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [transactions]);
+
+  const categoryBarData = useMemo(() => {
+    return {
+      labels: sortedCategories.map((s) => s[0]),
+      datasets: [
+        {
+          label: 'Jumlah Belanja (RM)',
+          data: sortedCategories.map((s) => s[1]),
+          backgroundColor: [
+            '#F43F5E', '#FB923C', '#FBBF24', '#A855F7', '#38BDF8', '#4ADE80'
+          ],
+          borderRadius: 6,
+        },
+      ],
+    };
+  }, [sortedCategories]);
 
   return (
     <div className="space-y-4">

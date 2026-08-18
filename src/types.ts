@@ -35,7 +35,25 @@ export interface LoanFinancing {
   updated_at: string;
 }
 
-export type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
+export type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment' | 'refund';
+
+export interface MonthlyClosedRecord {
+  id: string;
+  month: string; // e.g. "2026-08"
+  month_name: string; // e.g. "Ogos 2026"
+  opening_balance: number;
+  total_income: number;
+  total_expense: number;
+  total_transfers: number;
+  total_adjustments: number;
+  total_refunds: number;
+  closing_balance: number;
+  net_savings: number;
+  closed_at: string;
+  closed_by: string;
+  is_locked: boolean;
+  notes?: string;
+}
 
 export interface Transaction {
   id: string;
@@ -65,11 +83,13 @@ export interface CategoryItem {
 export interface User {
   id: string;
   username: string;
-  full_name: string;
+  full_name?: string;
+  name?: string;
   email?: string;
   role?: string;
-  currency: string;
+  currency?: string;
   avatar_url?: string;
+  created_at?: string;
 }
 
 export interface SummaryStats {

@@ -409,6 +409,256 @@ Ekstrak maklumat berikut secara tepat:
   }
 });
 
+// MyWang AI Financial Advisor & Q&A API
+app.post("/api/ai-financial-advisor", async (req, res) => {
+  try {
+    const { question, accounts = [], transactions = [], stats = {}, user = {}, history = [] } = req.body;
+
+    if (!question || typeof question !== "string" || !question.trim()) {
+      return res.status(400).json({
+        status: "error",
+        message: "Sila masukkan soalan kewangan anda.",
+      });
+    }
+
+    const cleanQuestion = question.trim();
+    const ai = getGemini();
+
+    // Prepare Financial Context Data Snapshot
+    const currentMonth = new Date().toISOString().slice(0, 7); // e.g. "2026-08"
+    
+    // Category Breakdown (This Month)
+    const categoryTotalsCurrentMonth: Record<string, number> = {};
+    const categoryTotalsAllTime: Record<string, number> = {};
+    const monthlySpendingTotals: Record<string, { income: number; expense: number }> = {};
+
+    let thisMonthFoodExpense = 0;
+    let thisMonthPetrolExpense = 0;
+    let thisMonthShoppingExpense = 0;
+
+    transactions.forEach((tx: any) => {
+      const txDate = String(tx.date || tx.created_at || "").slice(0, 7);
+      const amt = Number(tx.amount) || 0;
+      const type = String(tx.type).toLowerCase();
+      const cat = String(tx.category || "Lain-lain").trim();
+
+      if (!monthlySpendingTotals[txDate]) {
+        monthlySpendingTotals[txDate] = { income: 0, expense: 0 };
+      }
+
+      if (type === "income" || type === "refund") {
+        monthlySpendingTotals[txDate].income += amt;
+      } else if (type === "expense") {
+        monthlySpendingTotals[txDate].expense += amt;
+        categoryTotalsAllTime[cat] = (categoryTotalsAllTime[cat] || 0) + amt;
+
+        if (txDate === currentMonth) {
+          categoryTotalsCurrentMonth[cat] = (categoryTotalsCurrentMonth[cat] || 0) + amt;
+          const lowerCat = cat.toLowerCase();
+          if (lowerCat.includes("makan") || lowerCat.includes("food") || lowerCat.includes("minum")) {
+            thisMonthFoodExpense += amt;
+          }
+          if (lowerCat.includes("minyak") || lowerCat.includes("petrol") || lowerCat.includes("tol")) {
+            thisMonthPetrolExpense += amt;
+          }
+          if (lowerCat.includes("shop") || lowerCat.includes("beli") || lowerCat.includes("barang")) {
+            thisMonthShoppingExpense += amt;
+          }
+        }
+      }
+    });
+
+    // Top categories this month sorted
+    const topCategoriesThisMonth = Object.entries(categoryTotalsCurrentMonth)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, total]) => ({ category: name, amount: Math.round(total * 100) / 100 }));
+
+    // Accounts summary
+    const accountsSummary = accounts.map((acc: any) => ({
+      bank: acc.bank,
+      name: acc.account_name,
+      type: acc.type,
+      balance: acc.balance,
+    }));
+
+    // Recent 40 transactions
+    const recentTxList = transactions.slice(0, 40).map((t: any) => ({
+      date: t.date,
+      type: t.type,
+      category: t.category,
+      amount: t.amount,
+      account: t.account_name,
+      note: t.note,
+    }));
+
+    const financialContext = {
+      currentUser: user.full_name || user.username || "Pengguna",
+      currentMonth,
+      stats: {
+        totalNetWorth: stats.netWorth,
+        totalCashAvailable: stats.cashAvailable,
+        totalMoneyInAssets: stats.totalMoney,
+        creditAndDebtUsed: stats.creditUsed,
+        incomeThisMonth: stats.incomeThisMonth,
+        expenseThisMonth: stats.expenseThisMonth,
+        savingsThisMonth: Math.round(((stats.incomeThisMonth || 0) - (stats.expenseThisMonth || 0)) * 100) / 100,
+      },
+      topCategoriesThisMonth,
+      accounts: accountsSummary,
+      monthlyHistory: monthlySpendingTotals,
+      recentTransactions: recentTxList,
+    };
+
+    if (ai) {
+      try {
+        const systemPrompt = `Anda adalah "MyWang AI" — Pembantu & Penasihat Kewangan Peribadi Pintar berasaskan Gemini AI untuk aplikasi pengurusan wang MyWang Malaysia.
+Pengguna bernama "${financialContext.currentUser}". Mata wang rasmi ialah Ringgit Malaysia (RM / MYR).
+
+DATA KEWANGAN SEBENAR PENGGUNA:
+\`\`\`json
+${JSON.stringify(financialContext, null, 2)}
+\`\`\`
+
+TANGGUNGJAWAB ANDA:
+1. Jawab soalan pengguna dengan TEPAT, PROFESIONAL, dan MESRA dalam Bahasa Melayu.
+2. Gunakan data kewangan sebenar di atas untuk mengira jawapan (contoh: jumlah makan, perbelanjaan tertinggi, perbandingan bulan lepas, simpanan bersih). Jangan mereka angka palsu.
+3. Format jawapan secara kemas dan mudah dibaca:
+   - Gunakan nombor berformat RM (contoh: **RM 428.60**)
+   - Gunakan peratusan perbandingan jika relevan (contoh: **↑ 18.4% berbanding Julai**)
+   - Gunakan senarai bullet point atau jadual mini jika menyenaraikan kategori atau akaun
+   - Berikan cadangan atau insight kewangan ringkas di hujung jawapan.
+4. Pulangkan format JSON yang sah dengan struktur berikut:
+   {
+     "answer": "Teks jawapan penuh dalam format Markdown",
+     "highlightStats": [
+       { "label": "Nama Metrik", "value": "RM XXX.XX", "change": "+X.X%", "type": "positive|negative|neutral" }
+     ],
+     "suggestedQuestions": [
+       "Cadangan soalan susulan 1",
+       "Cadangan soalan susulan 2",
+       "Cadangan soalan susulan 3"
+     ]
+   }`;
+
+        const conversationContents: any[] = [
+          {
+            role: "user",
+            parts: [{ text: `${systemPrompt}\n\nSoalan Pengguna: "${cleanQuestion}"` }],
+          },
+        ];
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3.7-flash",
+          contents: conversationContents,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                answer: {
+                  type: Type.STRING,
+                  description: "Teks jawapan penasihat kewangan dalam Bahasa Melayu berformat Markdown",
+                },
+                highlightStats: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      label: { type: Type.STRING },
+                      value: { type: Type.STRING },
+                      change: { type: Type.STRING },
+                      type: { type: Type.STRING },
+                    },
+                    required: ["label", "value"],
+                  },
+                },
+                suggestedQuestions: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                },
+              },
+              required: ["answer"],
+            },
+          },
+        });
+
+        const parsedText = response.text ? JSON.parse(response.text) : null;
+        if (parsedText && parsedText.answer) {
+          return res.json({
+            status: "success",
+            data: {
+              answer: parsedText.answer,
+              highlightStats: parsedText.highlightStats || [],
+              suggestedQuestions: parsedText.suggestedQuestions || [
+                "Berapa baki simpanan kecemasan aku?",
+                "Mana perbelanjaan boleh dijimatkan?",
+                "Bandingkan duit keluar bulan ini vs bulan lepas",
+              ],
+            },
+          });
+        }
+      } catch (geminiErr: any) {
+        console.warn("Gemini AI advisor error, using smart rule engine fallback:", geminiErr);
+      }
+    }
+
+    // Smart Local Fallback Advisor Engine (Runs instantly if Gemini API is offline)
+    const qLower = cleanQuestion.toLowerCase();
+    let answer = "";
+    let highlightStats: any[] = [];
+    let suggestedQuestions = [
+      "Berapa aku belanja makan bulan ni?",
+      "Mana paling banyak duit aku keluar?",
+      "Berapa baki tunai & akaun bank aku?",
+      "Bagi cadangan penjimatan bulanan",
+    ];
+
+    if (qLower.includes("makan") || qLower.includes("food") || qLower.includes("minum") || qLower.includes("restoran")) {
+      answer = `### 🍴 Perbelanjaan Makanan & Minuman Bulan Ini\n\nJumlah yang telah anda belanjakan untuk kategori **Makanan & Minuman** pada bulan ini ialah **RM ${thisMonthFoodExpense.toFixed(2)}**.\n\n` +
+        (thisMonthFoodExpense > 0 
+          ? `Ini mewakili lebih kurang **${stats.expenseThisMonth > 0 ? ((thisMonthFoodExpense / stats.expenseThisMonth) * 100).toFixed(1) : 0}%** daripada keseluruhan perbelanjaan bulanan anda (RM ${Number(stats.expenseThisMonth || 0).toFixed(2)}).`
+          : `Tiada rekod perbelanjaan makanan dikesan untuk bulan ini setakat ini.`);
+      highlightStats = [{ label: "Belanja Makan", value: `RM ${thisMonthFoodExpense.toFixed(2)}`, type: "neutral" }];
+    } else if (qLower.includes("paling banyak") || qLower.includes("terbanyak") || qLower.includes("bocor") || qLower.includes("tinggi") || qLower.includes("top")) {
+      if (topCategoriesThisMonth.length > 0) {
+        const topList = topCategoriesThisMonth.slice(0, 5).map((c, i) => `${i + 1}. **${c.category}** — RM ${c.amount.toFixed(2)}`).join("\n");
+        answer = `### 🛒 Kategori Perbelanjaan Terbanyak (Bulan Ini)\n\nBerikut adalah 5 kategori perbelanjaan tertinggi anda:\n\n${topList}\n\n💡 **Tip MyWang:** Kategori utama anda menyumbang bahagian terbesar duit keluar. Anda boleh menetapkan had bajet bulanan untuk kategori ini bagi mengelakkan overspending.`;
+        highlightStats = [{ label: "Teratas", value: topCategoriesThisMonth[0]?.category || "Am", change: `RM ${topCategoriesThisMonth[0]?.amount.toFixed(2)}`, type: "negative" }];
+      } else {
+        answer = `### 📊 Analisis Perbelanjaan\n\nBelum ada transaksi perbelanjaan yang direkodkan untuk bulan ini. Mulakan dengan mencatat perbelanjaan atau imbas resit anda!`;
+      }
+    } else if (qLower.includes("simpanan") || qLower.includes("tunai") || qLower.includes("baki") || qLower.includes("cash") || qLower.includes("net worth")) {
+      answer = `### 💰 Status Tunai & Kekayaan Bersih\n\n- **Tunai Sedia Ada (Cash Available):** **RM ${Number(stats.cashAvailable || 0).toFixed(2)}**\n- **Jumlah Aset Keseluruhan:** **RM ${Number(stats.totalMoney || 0).toFixed(2)}**\n- **Hutang / Kredit Digunakan:** **RM ${Number(stats.creditUsed || 0).toFixed(2)}**\n- **Nilai Bersih (Net Worth):** **RM ${Number(stats.netWorth || 0).toFixed(2)}**\n\n${(stats.cashAvailable || 0) > (stats.creditUsed || 0) ? "✅ Nisbah kecairan anda dalam keadaan sihat!" : "⚠️ Perhatian: Jumlah liabiliti/kredit anda melebihi tunai cair semasa."}`;
+      highlightStats = [
+        { label: "Tunai Sedia Ada", value: `RM ${Number(stats.cashAvailable || 0).toFixed(2)}`, type: "positive" },
+        { label: "Nilai Bersih", value: `RM ${Number(stats.netWorth || 0).toFixed(2)}`, type: "positive" },
+      ];
+    } else {
+      const netSavings = (stats.incomeThisMonth || 0) - (stats.expenseThisMonth || 0);
+      answer = `### 📋 Ringkasan Kewangan MyWang\n\n- **Duit Masuk Bulan Ini:** RM ${Number(stats.incomeThisMonth || 0).toFixed(2)}\n- **Duit Keluar Bulan Ini:** RM ${Number(stats.expenseThisMonth || 0).toFixed(2)}\n- **Lebihan / Simpanan Bersih:** **RM ${netSavings.toFixed(2)}**\n- **Jumlah Akaun Aktif:** ${accounts.length} akaun\n\nAnda boleh bertanya soalan spesifik seperti: *"Berapa aku belanja makan bulan ni?"* atau *"Mana paling banyak duit keluar?"*.`;
+      highlightStats = [
+        { label: "Pendapatan Bulan Ini", value: `RM ${Number(stats.incomeThisMonth || 0).toFixed(2)}`, type: "positive" },
+        { label: "Perbelanjaan Bulan Ini", value: `RM ${Number(stats.expenseThisMonth || 0).toFixed(2)}`, type: "negative" },
+      ];
+    }
+
+    return res.json({
+      status: "success",
+      data: {
+        answer,
+        highlightStats,
+        suggestedQuestions,
+      },
+    });
+  } catch (err: any) {
+    console.error("AI Advisor error:", err);
+    res.status(500).json({
+      status: "error",
+      message: "Gagal menjana respons AI: " + (err.message || String(err)),
+    });
+  }
+});
+
 // Helper to parse any SakuTrack date string (e.g. "Thu Aug 13 2026 00:00:00 GMT+0800") to YYYY-MM-DD
 function parseSakuTrackDate(raw: any): string {
   if (!raw) return new Date().toISOString().split("T")[0];

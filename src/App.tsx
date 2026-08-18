@@ -19,10 +19,15 @@ import { GoogleSheetsSettingsModal } from './components/GoogleSheetsSettingsModa
 import { AuditLogsModal } from './components/AuditLogsModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SecretLoansModal } from './components/SecretLoansModal';
+import { AccountDetailsModal } from './components/AccountDetailsModal';
+import { MyWangAIModal } from './components/MyWangAIModal';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
+import { MonthlyClosingModal } from './components/MonthlyClosingModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { StorageService } from './services/storage';
 import { Account, Transaction, CategoryItem, AuditLog, TransactionType, LoanFinancing } from './types';
+import { getMalaysiaDateString, getMalaysiaTimestamp } from './utils/formatters';
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -58,6 +63,7 @@ function DashboardApp() {
   // Modals
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [selectedDetailAccount, setSelectedDetailAccount] = useState<Account | null>(null);
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [transferSourceAccount, setTransferSourceAccount] = useState<Account | null>(null);
@@ -71,6 +77,21 @@ function DashboardApp() {
   const [isAuditLogsOpen, setIsAuditLogsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSecretLoansOpen, setIsSecretLoansOpen] = useState(false);
+  const [isMyWangAIOpen, setIsMyWangAIOpen] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [isMonthlyClosingOpen, setIsMonthlyClosingOpen] = useState(false);
+
+  // Keyboard shortcut for Cmd/Ctrl + K (Global Search)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Sync & Feedback
   const [isSyncing, setIsSyncing] = useState(false);
@@ -435,7 +456,7 @@ function DashboardApp() {
     if (fromAcc) {
       const newBalance = Math.round((fromAcc.balance - installmentAmt) * 100) / 100;
       updatedAccounts = accounts.map((a) =>
-        a.id === fromAcc.id ? { ...a, balance: newBalance, updated_at: new Date().toISOString().split('T')[0] } : a
+        a.id === fromAcc.id ? { ...a, balance: newBalance, updated_at: getMalaysiaDateString() } : a
       );
       setAccounts(updatedAccounts);
       StorageService.saveAccounts(updatedAccounts);
@@ -448,7 +469,7 @@ function DashboardApp() {
       type: 'expense',
       category: loan.type === 'hire_purchase' ? 'Ansuran Kereta' : 'Ansuran Pinjaman',
       amount: installmentAmt,
-      date: new Date().toISOString().split('T')[0],
+      date: getMalaysiaDateString(),
       note: `Bayaran ansuran bulanan untuk ${loan.name} (${loan.provider})`,
       created_at: new Date().toISOString(),
     };
@@ -462,6 +483,13 @@ function DashboardApp() {
     addToast('success', `Bayaran ansuran ${loan.name} RM ${installmentAmt.toFixed(2)} berjaya direkod!`);
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
     StorageService.enqueueSync('addTransaction', newTx);
+  };
+
+  // 5c. Reorder Accounts (Drag and drop or Shift columns)
+  const handleReorderAccounts = (reorderedList: Account[]) => {
+    setAccounts(reorderedList);
+    StorageService.saveAccounts(reorderedList);
+    StorageService.saveToBackendServer({ accounts: reorderedList, transactions }).catch(() => {});
   };
 
   // 6. Update / Edit Transaction (From Pencil Edit)
@@ -643,6 +671,9 @@ function DashboardApp() {
             setIsAddTxOpen(true);
           }}
           onOpenSecretLoans={() => setIsSecretLoansOpen(true)}
+          onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
+          onOpenMyWangAI={() => setIsMyWangAIOpen(true)}
+          onOpenMonthlyClosing={() => setIsMonthlyClosingOpen(true)}
           onManualSync={() => handleManualSync(true)}
           isSyncing={isSyncing}
           unreadNotificationsCount={1}
@@ -709,6 +740,8 @@ function DashboardApp() {
             {activeTab === 'dashboard' && (
               <AccountsGrid
                 accounts={accounts}
+                transactions={transactions}
+                onSelectAccount={(acc) => setSelectedDetailAccount(acc)}
                 onEditAccount={(acc) => setEditingAccount(acc)}
                 onQuickTransfer={(acc) => {
                   setTransferSourceAccount(acc);
@@ -716,6 +749,7 @@ function DashboardApp() {
                 }}
                 onAddAccount={() => setIsAddAccountOpen(true)}
                 onRefreshData={() => handleManualSync(true)}
+                onReorderAccounts={handleReorderAccounts}
                 isSyncing={isSyncing}
               />
             )}
@@ -924,6 +958,64 @@ function DashboardApp() {
         onClose={() => setIsSecretLoansOpen(false)}
         accounts={accounts}
         onRecordPayment={handleRecordLoanPayment}
+      />
+
+      {/* 11. Account Details 4-Tab Dashboard (Overview, History, Trend, Statement) */}
+      <AccountDetailsModal
+        isOpen={!!selectedDetailAccount}
+        account={selectedDetailAccount}
+        transactions={transactions}
+        accounts={accounts}
+        onClose={() => setSelectedDetailAccount(null)}
+        onEditAccount={(acc) => {
+          setSelectedDetailAccount(null);
+          setEditingAccount(acc);
+        }}
+        onQuickTransfer={(acc) => {
+          setSelectedDetailAccount(null);
+          setTransferSourceAccount(acc);
+          setIsTransferOpen(true);
+        }}
+        onEditTransaction={(tx) => setEditingTransaction(tx)}
+        onDeleteTransaction={(id) => handleDeleteTransaction(id)}
+      />
+
+      {/* 12. MyWang AI Financial Advisor Chat Modal */}
+      <MyWangAIModal
+        isOpen={isMyWangAIOpen}
+        onClose={() => setIsMyWangAIOpen(false)}
+        accounts={accounts}
+        transactions={transactions}
+        stats={stats}
+        user={user}
+      />
+
+      {/* 13. Global Search & Command Palette Modal (Ctrl+K) */}
+      <GlobalSearchModal
+        isOpen={isGlobalSearchOpen}
+        accounts={accounts}
+        transactions={transactions}
+        onClose={() => setIsGlobalSearchOpen(false)}
+        onSelectAccount={(acc) => {
+          setIsGlobalSearchOpen(false);
+          setSelectedDetailAccount(acc);
+        }}
+        onSelectTransaction={(tx) => {
+          setIsGlobalSearchOpen(false);
+          setEditingTransaction(tx);
+        }}
+      />
+
+      {/* 14. Monthly Closing & Reconciliation Modal */}
+      <MonthlyClosingModal
+        isOpen={isMonthlyClosingOpen}
+        onClose={() => setIsMonthlyClosingOpen(false)}
+        accounts={accounts}
+        transactions={transactions}
+        user={user}
+        onMonthClosed={(rec) => {
+          addToast('success', `Bulan ${rec.month_name} berjaya ditutup & disahihkan.`);
+        }}
       />
 
     </div>

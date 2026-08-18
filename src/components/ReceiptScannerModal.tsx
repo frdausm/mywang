@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Account, CategoryItem, ReceiptScanResult, Transaction } from '../types';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, getMalaysiaDateString } from '../utils/formatters';
 import { 
   X, 
   UploadCloud, 
@@ -50,7 +50,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   // Extracted Fields for Review
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState<string>('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getMalaysiaDateString());
   const [category, setCategory] = useState('');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [note, setNote] = useState('');
@@ -61,6 +61,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      setDate(getMalaysiaDateString());
       setScanType(initialMode);
       setCategory(initialMode === 'income' ? (incomeCategories[0]?.name || 'Gaji') : (expenseCategories[0]?.name || 'Makanan & Minuman'));
       setImagePreview(null);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Account } from '../types';
+import { getMalaysiaDateString } from '../utils/formatters';
 import { X, Check, Landmark, CreditCard, Smartphone, DollarSign, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -58,7 +59,7 @@ export const EditAccountModal: React.FC<EditAccountModalProps> = ({
       total_invested: totalInvested ? parseFloat(totalInvested) : undefined,
       fund_name: fundName.trim() || undefined,
       account_number: accountNumber.trim() || undefined,
-      updated_at: new Date().toISOString().split('T')[0],
+      updated_at: getMalaysiaDateString(),
     };
 
     await onSave(updated);

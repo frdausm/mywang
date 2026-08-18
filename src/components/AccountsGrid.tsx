@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Account } from '../types';
+import { Account, Transaction } from '../types';
 import { formatCurrency, formatDateMalay, getBankVisuals } from '../utils/formatters';
 import { 
   Pencil, 
@@ -14,16 +14,26 @@ import {
   Sparkles,
   LayoutGrid,
   Building2,
-  RefreshCw
+  RefreshCw,
+  GripVertical,
+  ChevronLeft,
+  ChevronRight,
+  MoveHorizontal,
+  TrendingUp,
+  TrendingDown,
+  Receipt
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface AccountsGridProps {
   accounts: Account[];
+  transactions?: Transaction[];
+  onSelectAccount?: (account: Account) => void;
   onEditAccount: (account: Account) => void;
   onQuickTransfer: (sourceAccount: Account) => void;
   onAddAccount: () => void;
   onRefreshData?: () => void;
+  onReorderAccounts?: (reorderedAccounts: Account[]) => void;
   isSyncing?: boolean;
 }
 
@@ -45,24 +55,71 @@ const INSTITUTIONS_ORDER = [
 
 export const AccountsGrid: React.FC<AccountsGridProps> = ({
   accounts,
+  transactions = [],
+  onSelectAccount,
   onEditAccount,
   onQuickTransfer,
   onAddAccount,
   onRefreshData,
+  onReorderAccounts,
   isSyncing = false,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'by_institution' | 'flat'>('by_institution');
+  const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
+  const [dragOverAccountId, setDragOverAccountId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after'>('after');
 
-  const filteredAccounts = accounts.filter((acc) => {
-    if (filterType === 'all') return true;
-    if (filterType === 'bank') return acc.type === 'bank';
-    if (filterType === 'ewallet') return acc.type === 'ewallet';
-    if (filterType === 'credit') return acc.type === 'credit_card' || acc.type === 'paylater';
-    if (filterType === 'invest') return acc.type === 'investment' || acc.type === 'gold';
-    if (filterType === 'cash') return acc.type === 'cash';
-    return true;
-  });
+  const currentMonthPrefix = new Date().toISOString().slice(0, 7);
+
+  // Precompute monthly stats per account
+  const accountStatsMap = React.useMemo(() => {
+    const map: Record<string, { netMovement: number; txCount: number }> = {};
+    
+    accounts.forEach((acc) => {
+      map[acc.id] = { netMovement: 0, txCount: 0 };
+    });
+
+    transactions.forEach((tx) => {
+      const txDate = tx.date || tx.created_at || '';
+      if (!txDate.startsWith(currentMonthPrefix)) return;
+      const amt = Number(tx.amount) || 0;
+
+      // Source account
+      if (map[tx.account_id]) {
+        map[tx.account_id].txCount++;
+        if (tx.type === 'income' || tx.type === 'refund') {
+          map[tx.account_id].netMovement += amt;
+        } else if (tx.type === 'expense') {
+          map[tx.account_id].netMovement -= amt;
+        } else if (tx.type === 'transfer') {
+          map[tx.account_id].netMovement -= amt;
+        } else if (tx.type === 'adjustment') {
+          map[tx.account_id].netMovement += amt;
+        }
+      }
+
+      // Destination transfer account
+      if (tx.type === 'transfer' && tx.to_account_id && map[tx.to_account_id]) {
+        map[tx.to_account_id].txCount++;
+        map[tx.to_account_id].netMovement += amt;
+      }
+    });
+
+    return map;
+  }, [accounts, transactions, currentMonthPrefix]);
+
+  const filteredAccounts = React.useMemo(() => {
+    return accounts.filter((acc) => {
+      if (filterType === 'all') return true;
+      if (filterType === 'bank') return acc.type === 'bank';
+      if (filterType === 'ewallet') return acc.type === 'ewallet';
+      if (filterType === 'credit') return acc.type === 'credit_card' || acc.type === 'paylater';
+      if (filterType === 'invest') return acc.type === 'investment' || acc.type === 'gold';
+      if (filterType === 'cash') return acc.type === 'cash';
+      return true;
+    });
+  }, [accounts, filterType]);
 
   // Helper to render account type icon
   const renderAccountIcon = (acc: Account) => {
@@ -89,8 +146,96 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
     }
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, acc: Account) => {
+    setDraggedAccountId(acc.id);
+    e.dataTransfer.setData('text/plain', acc.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetAcc: Account) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (draggedAccountId && draggedAccountId !== targetAcc.id) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      const isAfter = e.clientX > midX;
+      
+      setDragOverAccountId(targetAcc.id);
+      setDropPosition(isAfter ? 'after' : 'before');
+    }
+  };
+
+  const handleDragLeave = (_e: React.DragEvent, targetAcc: Account) => {
+    if (dragOverAccountId === targetAcc.id) {
+      setDragOverAccountId(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetAcc: Account) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedAccountId;
+    
+    if (!sourceId || sourceId === targetAcc.id) {
+      setDraggedAccountId(null);
+      setDragOverAccountId(null);
+      return;
+    }
+
+    const currentAccounts = [...accounts];
+    const sourceIdx = currentAccounts.findIndex(a => a.id === sourceId);
+    const targetIdx = currentAccounts.findIndex(a => a.id === targetAcc.id);
+
+    if (sourceIdx === -1 || targetIdx === -1) {
+      setDraggedAccountId(null);
+      setDragOverAccountId(null);
+      return;
+    }
+
+    // Remove source account
+    const [movedItem] = currentAccounts.splice(sourceIdx, 1);
+
+    // Calculate insertion index after removal
+    let insertIdx = currentAccounts.findIndex(a => a.id === targetAcc.id);
+    if (dropPosition === 'after') {
+      insertIdx += 1;
+    }
+
+    currentAccounts.splice(insertIdx, 0, movedItem);
+
+    if (onReorderAccounts) {
+      onReorderAccounts(currentAccounts);
+    }
+
+    setDraggedAccountId(null);
+    setDragOverAccountId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedAccountId(null);
+    setDragOverAccountId(null);
+  };
+
+  // Quick shift left/right for buttons or touch devices
+  const handleShiftAccount = (acc: Account, direction: -1 | 1) => {
+    const currentAccounts = [...accounts];
+    const idx = currentAccounts.findIndex(a => a.id === acc.id);
+    if (idx === -1) return;
+    
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= currentAccounts.length) return;
+
+    const [item] = currentAccounts.splice(idx, 1);
+    currentAccounts.splice(newIdx, 0, item);
+
+    if (onReorderAccounts) {
+      onReorderAccounts(currentAccounts);
+    }
+  };
+
   // Group accounts by institution dynamically based on user's actual accounts
-  const groupAccountsByInstitution = () => {
+  const institutionGroups = React.useMemo(() => {
     const groups: { institution: string; list: Account[]; index: number }[] = [];
     const assignedIds = new Set<string>();
 
@@ -105,7 +250,6 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
         const target = instName.toLowerCase().trim();
         
         if (target === 'maybank') {
-          // Exclude CIMB even if it has 'petronas' or other shared words
           if (b.includes('cimb') || n.includes('cimb') || id.includes('cimb')) return false;
           return b.includes('maybank') || n.includes('maybank') || b.includes('mae') || n.includes('mae') || id.includes('mb') || id.includes('maybank') || n.includes('miga');
         }
@@ -159,7 +303,6 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
 
       matched.forEach(m => assignedIds.add(m.id));
 
-      // Only include institutions that actually have accounts
       if (matched.length > 0) {
         groups.push({
           institution: instName,
@@ -180,27 +323,66 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
     }
 
     return groups;
-  };
+  }, [filteredAccounts]);
 
-  const institutionGroups = groupAccountsByInstitution();
-
-  const renderSingleCard = (acc: Account, index: number) => {
+  const renderSingleCard = (acc: Account, index: number, groupList?: Account[]) => {
     const visuals = getBankVisuals(acc.bank);
     const isDebt = acc.type === 'credit_card' || acc.type === 'paylater';
     const isNegative = acc.balance < 0;
+    const isBeingDragged = draggedAccountId === acc.id;
+    const isTarget = dragOverAccountId === acc.id;
+
+    // Check index within current group or list for disabling arrows
+    const localList = groupList || filteredAccounts;
+    const localIdx = localList.findIndex(a => a.id === acc.id);
+    const canMoveLeft = localIdx > 0;
+    const canMoveRight = localIdx < localList.length - 1;
+
+    // Monthly flow and tx stats for this account
+    const accStats = accountStatsMap[acc.id] || { netMovement: 0, txCount: 0 };
 
     return (
-      <motion.div
+      <div
         key={acc.id}
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.2, delay: index * 0.02 }}
-        className="group relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm hover:shadow-md hover:border-emerald-500/40 dark:hover:border-emerald-500/40 transition-all flex flex-col justify-between"
+        draggable={true}
+        onDragStart={(e) => handleDragStart(e, acc)}
+        onDragOver={(e) => handleDragOver(e, acc)}
+        onDragLeave={(e) => handleDragLeave(e, acc)}
+        onDrop={(e) => handleDrop(e, acc)}
+        onDragEnd={handleDragEnd}
+        onClick={() => {
+          if (onSelectAccount) {
+            onSelectAccount(acc);
+          }
+        }}
+        className={`group relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 flex flex-col justify-between cursor-pointer select-none ${
+          isBeingDragged 
+            ? 'opacity-40 border-dashed border-emerald-500 scale-95 shadow-none' 
+            : isTarget
+              ? 'border-emerald-500 ring-2 ring-emerald-500/40 dark:ring-emerald-400/40 shadow-lg scale-[1.02] bg-emerald-50/40 dark:bg-emerald-950/30'
+              : 'border-slate-200/80 dark:border-slate-800 p-4 shadow-sm hover:shadow-md hover:border-emerald-500/50 dark:hover:border-emerald-500/50'
+        } ${!isBeingDragged && !isTarget ? 'p-4' : 'p-4'}`}
       >
+        {/* Drop indicator bar */}
+        {isTarget && (
+          <div className={`absolute top-0 bottom-0 w-1.5 bg-emerald-500 rounded-full z-20 ${
+            dropPosition === 'before' ? 'left-1' : 'right-1'
+          }`} />
+        )}
+
         {/* Top Bank Header Strip */}
         <div>
-          <div className="flex items-start justify-between gap-2 mb-2.5">
-            <div className="flex items-center gap-2">
+          <div className="flex items-start justify-between gap-1.5 mb-2.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Drag Handle Icon */}
+              <div 
+                title="Tarik & Lepas untuk tukar lajur (Drag & Drop)" 
+                className="p-1 rounded-md text-slate-300 hover:text-slate-600 dark:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <GripVertical className="w-3.5 h-3.5" />
+              </div>
+
               <div className={`px-2 py-0.5 rounded-lg text-xs font-bold border shadow-xs ${visuals.badgeColor}`}>
                 {acc.bank}
               </div>
@@ -210,21 +392,84 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
               </span>
             </div>
 
-            {/* Pencil Edit Button */}
-            <button
-              onClick={() => onEditAccount(acc)}
-              id={`btn_edit_acc_${acc.id}`}
-              title="Kemaskini Baki (Pencil)"
-              className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-transparent hover:border-emerald-300 dark:hover:border-emerald-800 transition-all cursor-pointer"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
+            {/* Actions: Shift Left, Shift Right & Pencil Edit */}
+            <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+              {/* Quick Shift Left */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleShiftAccount(acc, -1);
+                }}
+                disabled={!canMoveLeft}
+                title="Alih kad ke kiri / hadapan"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-20 disabled:hover:bg-transparent transition-all cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Quick Shift Right */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleShiftAccount(acc, 1);
+                }}
+                disabled={!canMoveRight}
+                title="Alih kad ke kanan / hujung"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-20 disabled:hover:bg-transparent transition-all cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Pencil Edit Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditAccount(acc);
+                }}
+                id={`btn_edit_acc_${acc.id}`}
+                title="Kemaskini Baki (Pencil)"
+                className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 border border-transparent hover:border-emerald-300 dark:hover:border-emerald-800 transition-all cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Account Name */}
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1 mb-1" title={acc.account_name}>
             {acc.account_name}
           </h3>
+
+          {/* Smart Monthly Trend & Tx Count Badges */}
+          <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border ${
+              accStats.netMovement > 0
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : accStats.netMovement < 0
+                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+            }`}>
+              {accStats.netMovement > 0 ? (
+                <TrendingUp className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              ) : accStats.netMovement < 0 ? (
+                <TrendingDown className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+              ) : null}
+              <span>
+                {accStats.netMovement > 0
+                  ? `↑ RM ${accStats.netMovement.toFixed(2)} bulan ini`
+                  : accStats.netMovement < 0
+                  ? `↓ RM ${Math.abs(accStats.netMovement).toFixed(2)} bulan ini`
+                  : `— RM 0.00 bulan ini`}
+              </span>
+            </span>
+
+            {accStats.txCount > 0 && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center gap-1">
+                <Receipt className="w-3 h-3 text-slate-400" />
+                <span>{accStats.txCount} transaksi</span>
+              </span>
+            )}
+          </div>
 
           {/* Metadata */}
           {acc.type === 'gold' && acc.weight_grams && (
@@ -274,7 +519,10 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
 
             {/* Quick Transfer Button */}
             <button
-              onClick={() => onQuickTransfer(acc)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickTransfer(acc);
+              }}
               title={`Pindah wang dari ${acc.account_name}`}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-xs font-semibold transition-colors cursor-pointer"
             >
@@ -284,7 +532,7 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
           </div>
         </div>
 
-      </motion.div>
+      </div>
     );
   };
 
@@ -297,9 +545,13 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
             <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <span>Akaun & Dompet Saya ({accounts.length})</span>
             </h2>
+            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <MoveHorizontal className="w-3 h-3" />
+              <span>Boleh Tarik & Susun (Drag & Drop)</span>
+            </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Semua akaun aktif anda dipaparkan di sini. Tekan ikon pensel untuk kemaskini baki.
+            Tarik kad akaun untuk susun kedudukan lajur, atau tekan ikon anak panah (◀ / ▶) untuk pindah ke hadapan / hujung.
           </p>
         </div>
 
@@ -387,15 +639,16 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
       {viewMode === 'by_institution' ? (
         <div className="space-y-5">
           {institutionGroups.map((group) => {
-            const totalBalance = Math.round(group.list.reduce((sum, acc) => {
-              const isDebt = acc.type === 'credit_card' || acc.type === 'paylater';
-              return sum + (isDebt ? 0 : Number(acc.balance) || 0);
+            const assetAccounts = group.list.filter(acc => acc.type !== 'credit_card' && acc.type !== 'paylater');
+            const debtAccounts = group.list.filter(acc => acc.type === 'credit_card' || acc.type === 'paylater');
+
+            const totalAssetBalance = Math.round(assetAccounts.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0) * 100) / 100;
+
+            const rawDebtSum = Math.round(debtAccounts.reduce((sum, acc) => {
+              return sum + (Number(acc.balance) || 0);
             }, 0) * 100) / 100;
 
-            const totalDebt = Math.round(group.list.reduce((sum, acc) => {
-              const isDebt = acc.type === 'credit_card' || acc.type === 'paylater';
-              return sum + (isDebt ? Number(acc.balance) || 0 : 0);
-            }, 0) * 100) / 100;
+            const normalizedDebt = rawDebtSum !== 0 ? (rawDebtSum < 0 ? rawDebtSum : -rawDebtSum) : 0;
 
             return (
               <div 
@@ -417,20 +670,29 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3 text-xs font-semibold">
-                    <span className="text-emerald-700 dark:text-emerald-400">
-                      Baki: {formatCurrency(totalBalance)}
-                    </span>
-                    {totalDebt > 0 && (
-                      <span className="text-rose-600 dark:text-rose-400">
-                        Kredit/PL: {formatCurrency(totalDebt)}
+                    {/* If group ONLY has debt accounts (e.g. CIMB Credit Card with negative balance) */}
+                    {assetAccounts.length === 0 && debtAccounts.length > 0 ? (
+                      <span className="text-rose-600 dark:text-rose-400 font-bold">
+                        Baki: {formatCurrency(normalizedDebt)}
                       </span>
+                    ) : (
+                      <>
+                        <span className={totalAssetBalance < 0 ? "text-rose-600 dark:text-rose-400 font-bold" : "text-emerald-700 dark:text-emerald-400 font-bold"}>
+                          Baki: {formatCurrency(totalAssetBalance)}
+                        </span>
+                        {debtAccounts.length > 0 && normalizedDebt !== 0 && (
+                          <span className="text-rose-600 dark:text-rose-400 font-bold">
+                            Kredit/PL: {formatCurrency(normalizedDebt)}
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
-                {/* Sub Accounts Grid */}
+                {/* Sub Accounts Grid with Drag and Drop Support */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                  {group.list.map((acc, i) => renderSingleCard(acc, i))}
+                  {group.list.map((acc, i) => renderSingleCard(acc, i, group.list))}
                 </div>
               </div>
             );
@@ -461,7 +723,7 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
         /* VIEW 2: FLAT GRID OF ALL ACCOUNTS */
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-            {filteredAccounts.map((acc, index) => renderSingleCard(acc, index))}
+            {filteredAccounts.map((acc, index) => renderSingleCard(acc, index, filteredAccounts))}
 
             {/* Quick Add Card */}
             <motion.button

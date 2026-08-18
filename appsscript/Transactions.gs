@@ -1,200 +1,252 @@
 /**
- * MyWang - Transactions Module (Google Apps Script)
+ * SakuTrack & MyWang - Transactions Module (Google Apps Script)
  * Manages income, expenses, dual-entry transfers, and transactions
+ * Preserves 100% compatibility with original SakuTrack sheet structure
  */
+
+function getTransactionsSheet(ss) {
+  if (!ss) ss = getSpreadsheet();
+  return ss.getSheetByName('Transactions') || 
+         ss.getSheetByName('TRANSACTIONS') || 
+         ss.getSheetByName('transactions');
+}
 
 function getTransactionsList(params) {
   var ss = getSpreadsheet();
-  var sheet = ss.getSheetByName('TRANSACTIONS');
+  var sheet = getTransactionsSheet(ss);
   if (!sheet) {
-    initializeDatabaseSheets();
-    sheet = ss.getSheetByName('TRANSACTIONS');
+    return { status: 'success', data: [], transactions: [] };
   }
 
   var data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return { status: 'success', data: [] };
+  if (data.length <= 1) return { status: 'success', data: [], transactions: [] };
 
-  var headers = data[0];
+  var headers = data[0].map(function(h) { return String(h || '').trim(); });
   var transactions = [];
+
+  var filterUser = params ? (params.username || params.token || '') : '';
+  if (filterUser) filterUser = String(filterUser).trim().toLowerCase();
 
   for (var i = data.length - 1; i >= 1; i--) { // Reverse order (newest first)
     var row = data[i];
-    if (!row[0]) continue;
+    if (!row[0] && !row[7]) continue;
     
     var tx = {};
     for (var h = 0; h < headers.length; h++) {
       tx[headers[h]] = row[h];
     }
-    tx.amount = Number(tx.amount) || 0;
-    transactions.push(tx);
+
+    var rowUser = String(tx.Username || tx.username || '').trim().toLowerCase();
+    if (filterUser && rowUser && rowUser !== filterUser && rowUser !== 'user' && rowUser !== 'admin') {
+      // Still include if general
+    }
+
+    var txId = tx.TxID || tx.id || tx.txId || ('Tx_' + i);
+    var txType = String(tx.Type || tx.type || 'expense').toLowerCase();
+    var txDate = tx.Date || tx.date || '';
+    var txCategory = tx.Category || tx.category || 'Lain-lain';
+    var txMethod = tx.Method || tx.method || tx.payment_method || 'Online Transfer';
+    var txSource = tx.Source || tx.source || tx.account_name || tx.bank || 'Tunai';
+    var txAmount = Number(tx.Amount !== undefined ? tx.Amount : (tx.amount !== undefined ? tx.amount : 0)) || 0;
+    var txDiscount = Number(tx.Discount || tx.discount || 0) || 0;
+    var txNote = tx.Note || tx.note || '';
+    var txReceipt = tx.ReceiptURL || tx.receipt_url || tx.receipt || '';
+    var txCreated = tx.CreatedAt || tx.created_at || '';
+
+    transactions.push({
+      id: String(txId),
+      TxID: String(txId),
+      txId: String(txId),
+      Username: rowUser || 'user',
+      username: rowUser || 'user',
+      type: txType,
+      Type: txType,
+      date: String(txDate),
+      Date: String(txDate),
+      category: txCategory,
+      Category: txCategory,
+      payment_method: txMethod,
+      Method: txMethod,
+      account_name: txSource,
+      account_id: txSource,
+      Source: txSource,
+      source: txSource,
+      amount: txAmount,
+      Amount: txAmount,
+      discount: txDiscount,
+      Discount: txDiscount,
+      note: txNote,
+      Note: txNote,
+      receipt_url: txReceipt,
+      ReceiptURL: txReceipt,
+      created_at: txCreated,
+      CreatedAt: txCreated
+    });
   }
 
-  return { status: 'success', data: transactions };
+  return { status: 'success', data: transactions, transactions: transactions };
 }
 
 function handleAddTransaction(tx) {
-  if (!tx || !tx.amount) {
+  if (!tx || (tx.amount === undefined && tx.Amount === undefined)) {
     return { status: 'error', message: 'Jumlah transaksi diperlukan.' };
   }
 
   var ss = getSpreadsheet();
-  var txSheet = ss.getSheetByName('TRANSACTIONS');
-  var accSheet = ss.getSheetByName('ACCOUNTS');
+  var txSheet = getTransactionsSheet(ss);
+  var accSheet = getAccountsSheet(ss);
 
-  if (!tx.id) tx.id = 'tx_' + new Date().getTime();
-  if (!tx.date) tx.date = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'yyyy-MM-dd');
-  if (!tx.created_at) tx.created_at = new Date().toISOString();
+  if (!txSheet) {
+    txSheet = ss.insertSheet('Transactions');
+    txSheet.appendRow(['TxID', 'Username', 'Type', 'Date', 'Category', 'Method', 'Source', 'Amount', 'Discount', 'Note', 'ReceiptURL', 'CreatedAt']);
+    txSheet.getRange(1, 1, 1, 12).setBackground('#004D40').setFontColor('#FFFFFF').setFontWeight('bold');
+  }
 
-  var headers = txSheet.getDataRange().getValues()[0];
-  var newRow = headers.map(function(k) {
-    return tx[k] !== undefined ? tx[k] : '';
-  });
+  var txId = tx.TxID || tx.id || ('Tx_' + new Date().getTime());
+  var txUser = tx.Username || tx.username || 'user';
+  var txType = String(tx.Type || tx.type || 'expense').toLowerCase();
+  var txDate = tx.Date || tx.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'yyyy-MM-dd');
+  var txCat = tx.Category || tx.category || 'Lain-lain';
+  var txMethod = tx.Method || tx.method || tx.payment_method || 'Online Transfer';
+  var txSource = tx.Source || tx.source || tx.account_name || tx.bank || 'Maybank';
+  var txAmount = Number(tx.Amount !== undefined ? tx.Amount : tx.amount) || 0;
+  var txDisc = Number(tx.Discount !== undefined ? tx.Discount : (tx.discount || 0)) || 0;
+  var txNote = tx.Note || tx.note || '';
+  var txReceipt = tx.ReceiptURL || tx.receipt_url || tx.receipt || '';
+  var nowIso = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+
+  var data = txSheet.getDataRange().getValues();
+  var headers = data[0].map(function(h) { return String(h || '').trim(); });
+
+  var newRow = [];
+  for (var k = 0; k < headers.length; k++) {
+    var hName = headers[k];
+    if (hName === 'TxID' || hName === 'id') newRow.push(txId);
+    else if (hName === 'Username' || hName === 'username') newRow.push(txUser);
+    else if (hName === 'Type' || hName === 'type') newRow.push(txType);
+    else if (hName === 'Date' || hName === 'date') newRow.push(txDate);
+    else if (hName === 'Category' || hName === 'category') newRow.push(txCat);
+    else if (hName === 'Method' || hName === 'method' || hName === 'payment_method') newRow.push(txMethod);
+    else if (hName === 'Source' || hName === 'source' || hName === 'account_name' || hName === 'bank') newRow.push(txSource);
+    else if (hName === 'Amount' || hName === 'amount') newRow.push(txAmount);
+    else if (hName === 'Discount' || hName === 'discount') newRow.push(txDisc);
+    else if (hName === 'Note' || hName === 'note') newRow.push(txNote);
+    else if (hName === 'ReceiptURL' || hName === 'receipt_url' || hName === 'receipt') newRow.push(txReceipt);
+    else if (hName === 'CreatedAt' || hName === 'created_at') newRow.push(nowIso);
+    else newRow.push(tx[hName] !== undefined ? tx[hName] : '');
+  }
 
   txSheet.appendRow(newRow);
 
-  // Update Account Balance automatically
-  var amount = Number(tx.amount);
-  var accData = accSheet.getDataRange().getValues();
-  var accHeaders = accData[0];
-  var accIdIdx = accHeaders.indexOf('id');
-  var balIdx = accHeaders.indexOf('balance');
+  // Update Account in Accounts sheet if present
+  if (accSheet) {
+    var accData = accSheet.getDataRange().getValues();
+    if (accData.length > 1) {
+      var accHeaders = accData[0].map(function(h) { return String(h || '').trim(); });
+      var idIdx = accHeaders.indexOf('AccountID');
+      if (idIdx === -1) idIdx = accHeaders.indexOf('id');
+      var nameIdx = accHeaders.indexOf('AccountName');
+      if (nameIdx === -1) nameIdx = accHeaders.indexOf('account_name');
+      var balIdx = accHeaders.indexOf('InitialBalance');
+      if (balIdx === -1) balIdx = accHeaders.indexOf('balance');
 
-  for (var i = 1; i < accData.length; i++) {
-    if (String(accData[i][accIdIdx]) === String(tx.account_id)) {
-      var currentBal = Number(accData[i][balIdx]) || 0;
-      var newBal = currentBal;
+      for (var a = 1; a < accData.length; a++) {
+        var existingAccId = String(accData[a][idIdx] || '').trim();
+        var existingAccName = nameIdx !== -1 ? String(accData[a][nameIdx] || '').trim().toLowerCase() : '';
+        var searchSource = String(txSource).trim().toLowerCase();
 
-      if (tx.type === 'income') {
-        newBal = currentBal + amount;
-      } else if (tx.type === 'expense') {
-        newBal = currentBal - amount;
+        if (existingAccId === txSource || (existingAccName && (existingAccName === searchSource || searchSource.indexOf(existingAccName) !== -1))) {
+          var curBal = Number(accData[a][balIdx]) || 0;
+          var updatedBal = curBal;
+          if (txType === 'income') {
+            updatedBal = curBal + txAmount;
+          } else if (txType === 'expense') {
+            updatedBal = curBal - txAmount;
+          }
+          accSheet.getRange(a + 1, balIdx + 1).setValue(updatedBal);
+          break;
+        }
       }
-
-      accSheet.getRange(i + 1, balIdx + 1).setValue(newBal);
-      break;
     }
   }
 
-  addAuditLog('ADD_TRANSACTION', 'Transaksi baru ' + tx.type.toUpperCase() + ' RM ' + tx.amount + ' (' + tx.category + ')');
+  addAuditLog('ADD_TRANSACTION', 'Transaksi baru ' + txType.toUpperCase() + ' RM ' + txAmount + ' (' + txCat + ')', txUser);
 
-  return { status: 'success', message: 'Transaksi berjaya direkodkan.', data: tx };
+  return { status: 'success', message: 'Transaksi berjaya direkodkan ke Google Sheets.', data: tx };
 }
 
 function handleTransferMoney(transferData) {
-  var fromId = transferData.from_account_id;
-  var toId = transferData.to_account_id;
+  var fromId = transferData.from_account_id || transferData.from_account || transferData.from;
+  var toId = transferData.to_account_id || transferData.to_account || transferData.to;
   var amount = Number(transferData.amount);
 
   if (!fromId || !toId || !amount || amount <= 0) {
     return { status: 'error', message: 'Maklumat akaun sumber, sasaran dan jumlah diperlukan.' };
   }
 
-  if (fromId === toId) {
-    return { status: 'error', message: 'Akaun sumber dan sasaran tidak boleh sama.' };
-  }
-
-  var ss = getSpreadsheet();
-  var accSheet = ss.getSheetByName('ACCOUNTS');
-  var txSheet = ss.getSheetByName('TRANSACTIONS');
-  var tfSheet = ss.getSheetByName('TRANSFERS');
-
-  var accData = accSheet.getDataRange().getValues();
-  var accHeaders = accData[0];
-  var idIdx = accHeaders.indexOf('id');
-  var nameIdx = accHeaders.indexOf('account_name');
-  var bankIdx = accHeaders.indexOf('bank');
-  var balIdx = accHeaders.indexOf('balance');
-
-  var fromRow = -1;
-  var toRow = -1;
-  var fromName = '';
-  var toName = '';
-
-  for (var i = 1; i < accData.length; i++) {
-    if (String(accData[i][idIdx]) === String(fromId)) {
-      fromRow = i + 1;
-      fromName = (accData[i][bankIdx] + ' - ' + accData[i][nameIdx]);
-    }
-    if (String(accData[i][idIdx]) === String(toId)) {
-      toRow = i + 1;
-      toName = (accData[i][bankIdx] + ' - ' + accData[i][nameIdx]);
-    }
-  }
-
-  if (fromRow === -1 || toRow === -1) {
-    return { status: 'error', message: 'Salah satu akaun tidak dijumpai.' };
-  }
-
-  // Update Balances
-  var fromCurBal = Number(accData[fromRow - 1][balIdx]) || 0;
-  var toCurBal = Number(accData[toRow - 1][balIdx]) || 0;
-
-  accSheet.getRange(fromRow, balIdx + 1).setValue(fromCurBal - amount);
-  accSheet.getRange(toRow, balIdx + 1).setValue(toCurBal + amount);
-
-  // Record Transaction
+  // Record as 2 transactions or transfer
   var today = transferData.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'yyyy-MM-dd');
-  var txId = 'tx_tf_' + new Date().getTime();
+  
+  // 1. Outflow from source
+  handleAddTransaction({
+    Type: 'expense',
+    Date: today,
+    Category: 'Pindahan Keluar',
+    Method: 'Online Transfer',
+    Source: fromId,
+    Amount: amount,
+    Note: transferData.note || ('Pindahan ke ' + toId)
+  });
 
-  var txHeaders = txSheet.getDataRange().getValues()[0];
-  var txObj = {
-    id: txId,
-    date: today,
-    account_id: fromId,
-    account_name: fromName,
-    to_account_id: toId,
-    to_account_name: toName,
-    type: 'transfer',
-    category: 'Transfer',
-    amount: amount,
-    note: transferData.note || ('Pindahan dari ' + fromName + ' ke ' + toName),
-    created_at: new Date().toISOString()
-  };
+  // 2. Inflow to target
+  handleAddTransaction({
+    Type: 'income',
+    Date: today,
+    Category: 'Pindahan Masuk',
+    Method: 'Online Transfer',
+    Source: toId,
+    Amount: amount,
+    Note: transferData.note || ('Pindahan dari ' + fromId)
+  });
 
-  var newTxRow = txHeaders.map(function(k) { return txObj[k] !== undefined ? txObj[k] : ''; });
-  txSheet.appendRow(newTxRow);
-
-  if (tfSheet) {
-    var tfHeaders = tfSheet.getDataRange().getValues()[0];
-    var tfObj = {
-      id: 'tf_' + new Date().getTime(),
-      date: today,
-      from_account: fromName,
-      to_account: toName,
-      amount: amount,
-      note: transferData.note || '',
-      created_at: new Date().toISOString()
-    };
-    var newTfRow = tfHeaders.map(function(k) { return tfObj[k] !== undefined ? tfObj[k] : ''; });
-    tfSheet.appendRow(newTfRow);
-  }
-
-  addAuditLog('TRANSFER', 'Pindahan RM ' + amount + ' dari ' + fromName + ' ke ' + toName);
-
-  return { status: 'success', message: 'Pindahan dana RM ' + amount + ' berjaya.', transaction: txObj };
+  return { status: 'success', message: 'Pindahan dana RM ' + amount + ' berjaya.' };
 }
 
 function handleUpdateTransaction(tx) {
-  if (!tx || !tx.id) {
+  if (!tx || (!tx.id && !tx.TxID)) {
     return { status: 'error', message: 'ID transaksi diperlukan.' };
   }
 
+  var txId = String(tx.TxID || tx.id).trim();
   var ss = getSpreadsheet();
-  var txSheet = ss.getSheetByName('TRANSACTIONS');
+  var txSheet = getTransactionsSheet(ss);
+  if (!txSheet) return { status: 'error', message: 'Sheet Transactions tidak dijumpai.' };
+
   var data = txSheet.getDataRange().getValues();
-  var headers = data[0];
-  var idIdx = headers.indexOf('id');
+  var headers = data[0].map(function(h) { return String(h || '').trim(); });
+  var idIdx = headers.indexOf('TxID');
+  if (idIdx === -1) idIdx = headers.indexOf('id');
 
   for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idIdx]) === String(tx.id)) {
+    if (String(data[i][idIdx]).trim() === txId) {
       var rowNum = i + 1;
       for (var h = 0; h < headers.length; h++) {
         var key = headers[h];
-        if (tx[key] !== undefined && key !== 'id') {
-          txSheet.getRange(rowNum, h + 1).setValue(tx[key]);
+        var val = tx[key];
+        if (val === undefined) {
+          if (key === 'Amount') val = tx.amount;
+          if (key === 'Type') val = tx.type;
+          if (key === 'Date') val = tx.date;
+          if (key === 'Category') val = tx.category;
+          if (key === 'Method') val = tx.payment_method || tx.method;
+          if (key === 'Source') val = tx.account_name || tx.source;
+          if (key === 'Note') val = tx.note;
+        }
+        if (val !== undefined) {
+          txSheet.getRange(rowNum, h + 1).setValue(val);
         }
       }
-      addAuditLog('UPDATE_TRANSACTION', 'Kemaskini transaksi: ' + (tx.category || '') + ' RM ' + (tx.amount || ''));
+      addAuditLog('UPDATE_TRANSACTION', 'Kemaskini transaksi: ' + txId);
       return { status: 'success', message: 'Transaksi berjaya dikemaskini.', data: tx };
     }
   }
@@ -206,17 +258,24 @@ function handleDeleteTransaction(txId) {
   if (!txId) return { status: 'error', message: 'ID transaksi diperlukan.' };
 
   var ss = getSpreadsheet();
-  var txSheet = ss.getSheetByName('TRANSACTIONS');
+  var txSheet = getTransactionsSheet(ss);
+  if (!txSheet) return { status: 'error', message: 'Sheet Transactions tidak dijumpai.' };
+
   var data = txSheet.getDataRange().getValues();
-  var idIdx = data[0].indexOf('id');
+  var headers = data[0].map(function(h) { return String(h || '').trim(); });
+  var idIdx = headers.indexOf('TxID');
+  if (idIdx === -1) idIdx = headers.indexOf('id');
+
+  var targetId = String(txId).trim();
 
   for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idIdx]) === String(txId)) {
+    if (String(data[i][idIdx]).trim() === targetId) {
       txSheet.deleteRow(i + 1);
-      addAuditLog('DELETE_TRANSACTION', 'Padam transaksi ID: ' + txId);
-      return { status: 'success', message: 'Transaksi berjaya dipadam.' };
+      addAuditLog('DELETE_TRANSACTION', 'Padam transaksi ID: ' + targetId);
+      return { status: 'success', message: 'Transaksi berjaya dipadam dari Google Sheets.' };
     }
   }
 
-  return { status: 'error', message: 'Transaksi tidak dijumpai.' };
+  return { status: 'error', message: 'Transaksi tidak dijumpai dalam Google Sheets.' };
 }
+

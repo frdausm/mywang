@@ -1,18 +1,29 @@
 {
   "test": true,
-  "saved_at": "2026-08-17T01:25:11.371Z",
-  "last_saved_at": "2026-08-17T01:25:11.464Z",
+  "saved_at": "2026-08-18T13:30:45.794Z",
+  "last_saved_at": "2026-08-18T13:30:45.946Z",
   "transactions": [
     {
-      "id": "Tx_1786926255595",
-      "date": "2026-08-17",
+      "id": "tx_1787022117160",
+      "date": "2026-08-18",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 4.38,
+      "account_id": "RHB Bank - RHB Credit Card Islamic Cashback",
+      "account_name": "RHB Bank - RHB Credit Card Islamic Cashback",
+      "note": "lunch shopeefood",
+      "created_at": "Tue Aug 18 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "tx_1787010317379",
+      "date": "2026-08-18",
       "type": "income",
-      "category": "Pindahan Masuk",
-      "amount": 365,
-      "account_id": "Maybank - Maybank",
-      "account_name": "Maybank - Maybank",
-      "note": "Topup Prepaid Failed",
-      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+      "category": "Bonus",
+      "amount": 0.12,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
+      "note": "Pendapatan harian go+",
+      "created_at": "Tue Aug 18 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
       "id": "Tx_1786926254807",
@@ -48,37 +59,48 @@
       "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
-      "id": "Tx_1786841121110",
-      "date": "2026-08-16",
-      "type": "expense",
-      "category": "Makanan & Minuman",
-      "amount": 6.88,
-      "account_id": "RHB",
-      "account_name": "RHB",
-      "note": "Breakfast  shopeefood",
-      "created_at": "Sun Aug 16 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+      "id": "tx_1786975565621",
+      "date": "2026-08-17",
+      "type": "income",
+      "category": "Lain-lain",
+      "amount": 4,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "Tng pin",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
-      "id": "tx_1786860001107",
-      "date": "2026-08-16",
-      "type": "expense",
-      "category": "Makanan & Minuman",
-      "amount": 3.75,
-      "account_id": "RHB Credit Card Islamic Cashback - RHB Credit Card Islamic Cashback",
-      "account_name": "RHB Credit Card Islamic Cashback - RHB Credit Card Islamic Cashback",
-      "note": "Shopeefood - donut",
-      "created_at": "Sun Aug 16 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+      "id": "tx_1787010080726",
+      "date": "2026-08-17",
+      "type": "income",
+      "category": "Cashback",
+      "amount": 1.62,
+      "account_id": "Maybank - Maybank",
+      "account_name": "Maybank - Maybank",
+      "note": "Etiqa takaful cashback",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
-      "id": "Tx_1786859926184",
-      "date": "2026-08-16",
+      "id": "tx_1787010004955",
+      "date": "2026-08-17",
       "type": "expense",
       "category": "Makanan & Minuman",
-      "amount": 3.75,
-      "account_id": "RHB",
-      "account_name": "RHB",
-      "note": "Shopeefood donut",
-      "created_at": "Sun Aug 16 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+      "amount": 3,
+      "account_id": "Maybank - Maybank",
+      "account_name": "Maybank - Maybank",
+      "note": "Kuih aidin",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "tx_1787009973033",
+      "date": "2026-08-17",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 50.6,
+      "account_id": "Boost - Boost eWallet",
+      "account_name": "Boost - Boost eWallet",
+      "note": "Hibah",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
       "id": "Tx_1786881071880",
@@ -100,6 +122,28 @@
       "account_id": "Maybank - Maybank",
       "account_name": "Maybank - Maybank",
       "note": "shopee coins - beli",
+      "created_at": "Sun Aug 16 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "Tx_1786859926184",
+      "date": "2026-08-16",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 3.75,
+      "account_id": "RHB",
+      "account_name": "RHB",
+      "note": "Shopeefood donut",
+      "created_at": "Sun Aug 16 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "Tx_1786841121110",
+      "date": "2026-08-16",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 6.88,
+      "account_id": "RHB",
+      "account_name": "RHB",
+      "note": "Breakfast  shopeefood",
       "created_at": "Sun Aug 16 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
@@ -763,6 +807,17 @@
       "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
+      "id": "TX_1784963653398",
+      "date": "2026-07-25",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 3,
+      "account_id": "Maybank",
+      "account_name": "Maybank",
+      "note": "Parking mayang mall",
+      "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
       "id": "TX_1785180334088",
       "date": "2026-07-23",
       "type": "expense",
@@ -818,7 +873,7 @@
       "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     }
   ],
-  "last_gas_synced": "2026-08-17T01:25:08.780Z",
+  "last_gas_synced": "2026-08-18T13:30:43.767Z",
   "username": "admin",
   "accounts": [
     {
@@ -826,29 +881,44 @@
       "bank": "Maybank",
       "account_name": "Maybank",
       "type": "bank",
-      "balance": 329.77,
+      "balance": 328.39,
       "color": "from-amber-500 to-yellow-600",
       "icon": "Landmark",
       "notes": "Akaun Gaji",
       "updated_at": "2026-08-15T13:20:39.618Z"
     },
     {
+      "id": "acc_miga_gold",
+      "bank": "Maybank",
+      "account_name": "MIGA-i Gold (0.088g)",
+      "type": "gold",
+      "balance": 49.43,
+      "weight_grams": 0.088,
+      "avg_price_per_gram": 604.79,
+      "total_invested": 51.73,
+      "color": "from-amber-400 via-amber-500 to-yellow-600",
+      "icon": "Sparkles",
+      "notes": "Maybank MIGA-i 764018601800 (0.088g @ RM604.79/g, Nilai: RM49.43)",
+      "updated_at": "2026-08-17"
+    },
+    {
       "id": "ACC_002",
       "bank": "CIMB",
-      "account_name": "CIMB Bank",
-      "type": "bank",
+      "account_name": "CIMB Petronas Visa Islamic Credit Card",
+      "type": "credit_card",
       "balance": -5371.19,
       "color": "from-red-600 to-rose-800",
       "icon": "Landmark",
       "notes": "Petronas Islamic Credit Card",
-      "updated_at": "2026-08-15T13:20:39.803Z"
+      "updated_at": "2026-08-15T13:20:39.803Z",
+      "credit_limit": 12000
     },
     {
       "id": "ACC_003",
       "bank": "Touch 'n Go eWallet",
       "account_name": "Touch 'n Go eWallet",
       "type": "ewallet",
-      "balance": 1078.1,
+      "balance": 1082.34,
       "color": "from-blue-500 to-sky-600",
       "icon": "Smartphone",
       "notes": "Tol & Belanja Harian",
@@ -870,7 +940,7 @@
       "bank": "Touch 'n Go eWallet",
       "account_name": "Touch 'n Go eWallet GO+",
       "type": "ewallet",
-      "balance": 1522.89,
+      "balance": 1523.02,
       "color": "from-blue-500 to-sky-600",
       "icon": "Smartphone",
       "notes": "",
@@ -881,11 +951,12 @@
       "bank": "RHB Bank",
       "account_name": "RHB Credit Card Islamic Cashback",
       "type": "credit_card",
-      "balance": -1561.75,
+      "balance": -1566.13,
       "color": "from-blue-600 to-cyan-700",
       "icon": "CreditCard",
       "notes": "Cashback petrol, groceries & dining",
-      "updated_at": "2026-08-16T09:26:35.548Z"
+      "updated_at": "2026-08-16T09:26:35.548Z",
+      "credit_limit": 5000
     },
     {
       "id": "acc_1786843686714",
@@ -896,14 +967,15 @@
       "color": "from-amber-500 to-yellow-600",
       "icon": "CreditCard",
       "notes": "",
-      "updated_at": "2026-08-16T09:28:08.218Z"
+      "updated_at": "2026-08-16T09:28:08.218Z",
+      "credit_limit": 6000
     },
     {
       "id": "acc_boost",
       "bank": "Boost",
       "account_name": "Boost eWallet",
       "type": "ewallet",
-      "balance": 60.21,
+      "balance": 9.61,
       "color": "from-red-500 to-orange-600",
       "icon": "Smartphone",
       "notes": "Boost Pay & Loyalty Stars",
@@ -980,25 +1052,11 @@
       "bank": "Atome",
       "account_name": "PayLater",
       "type": "paylater",
-      "balance": 0.00,
-      "credit_limit": 1500.00,
+      "balance": 0,
+      "credit_limit": 1500,
       "color": "from-lime-400 to-yellow-500",
       "icon": "Clock",
       "notes": "Atome 3-bulan ansuran 0% faedah",
-      "updated_at": "2026-08-17"
-    },
-    {
-      "id": "acc_miga_gold",
-      "bank": "Maybank",
-      "account_name": "MIGA-i Gold (0.088g)",
-      "type": "gold",
-      "balance": 49.43,
-      "weight_grams": 0.088,
-      "avg_price_per_gram": 604.79,
-      "total_invested": 51.73,
-      "color": "from-amber-400 via-amber-500 to-yellow-600",
-      "icon": "Sparkles",
-      "notes": "Maybank MIGA-i 764018601800 (0.088g @ RM604.79/g, Nilai: RM49.43)",
       "updated_at": "2026-08-17"
     },
     {
@@ -1244,7 +1302,7 @@
     "webAppUrl": "https://script.google.com/macros/s/AKfycbx7jSb1NjRkNhEouyJMwRyfWiF98lAAdwsvpCAcDF_MoiNdxQWFtEzO8ncoGyPEJF31/exec",
     "autoSync": true,
     "isConnected": true,
-    "lastSynced": "09:25 am"
+    "lastSynced": "21:30"
   },
   "secretPasscode": "7445"
 }

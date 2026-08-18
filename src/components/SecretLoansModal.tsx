@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LoanFinancing, Account } from '../types';
 import { StorageService } from '../services/storage';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, getMalaysiaDateString } from '../utils/formatters';
 import { 
   Lock, 
   Unlock, 
@@ -108,7 +108,7 @@ export const SecretLoansModal: React.FC<SecretLoansModalProps> = ({
     }
 
     let updatedLoans: LoanFinancing[];
-    const nowIso = new Date().toISOString().split('T')[0];
+    const nowIso = getMalaysiaDateString();
 
     if (editingLoan) {
       updatedLoans = loans.map((l) =>
@@ -892,7 +892,7 @@ export const SecretLoansModal: React.FC<SecretLoansModalProps> = ({
                           remaining_balance: newBal,
                           remaining_tenure_months: newMonths,
                           total_paid: newPaid,
-                          updated_at: new Date().toISOString().split('T')[0]
+                          updated_at: getMalaysiaDateString()
                         } : l);
                         setLoans(updated);
                         StorageService.saveLoans(updated);

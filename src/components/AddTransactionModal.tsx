@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Account, CategoryItem, Transaction, TransactionType } from '../types';
+import { getMalaysiaDateString } from '../utils/formatters';
 import { X, Plus, ArrowDownLeft, ArrowUpRight, Scale, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -25,14 +26,17 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [type, setType] = useState<TransactionType>(defaultType);
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getMalaysiaDateString());
   const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setType(defaultType);
+    if (isOpen) {
+      setDate(getMalaysiaDateString());
+      setType(defaultType);
+    }
   }, [defaultType, isOpen]);
 
   useEffect(() => {

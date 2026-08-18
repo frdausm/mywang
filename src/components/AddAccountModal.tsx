@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Account, AccountType } from '../types';
+import { getMalaysiaDateString } from '../utils/formatters';
 import { X, Plus, Landmark, Smartphone, CreditCard, Clock, PiggyBank, Wallet, Sparkles, Coins } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -63,7 +64,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
       type: type,
       balance: numBalance,
       notes: notes.trim(),
-      updated_at: new Date().toISOString().split('T')[0],
+      updated_at: getMalaysiaDateString(),
     };
 
     await onAdd(newAcc);

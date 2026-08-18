@@ -1,5 +1,6 @@
 import { Account, Transaction, CategoryItem, SummaryStats, User, AuditLog, GoogleSheetsConfig, LoanFinancing } from '../types';
 import { INITIAL_ACCOUNTS, INITIAL_INCOME_TYPES, INITIAL_EXPENSE_TYPES, INITIAL_TRANSACTIONS, INITIAL_LOGS, DEFAULT_USER, INITIAL_LOANS, INITIAL_GAS_CONFIG } from '../data/defaultData';
+import { getMalaysiaDateString, getMalaysiaTimestamp, getMalaysiaTimeString } from '../utils/formatters';
 
 const STORAGE_KEYS = {
   ACCOUNTS: 'mywang_accounts',
@@ -38,27 +39,27 @@ export class StorageService {
       a.balance = Math.round((Number(a.balance) || 0) * 100) / 100;
 
       // Fix legacy ACC_002 / CIMB Credit card
-      if (a.id === 'ACC_002' || (rawName.toLowerCase().includes('cimb') && rawNotes.toLowerCase().includes('credit card'))) {
+      if (a.id === 'ACC_002' || a.id === 'acc_cimb_cc' || (rawName.toLowerCase().includes('cimb') && (rawNotes.toLowerCase().includes('credit card') || rawName.toLowerCase().includes('credit')))) {
         a.bank = 'CIMB';
         a.type = 'credit_card';
-        a.credit_limit = a.credit_limit || 5000;
+        a.credit_limit = 12000;
         if (!a.account_name.toLowerCase().includes('credit') && !a.account_name.toLowerCase().includes('petronas')) {
           a.account_name = 'CIMB Petronas Visa Islamic Credit Card';
         }
       }
 
       // Fix Maybank Petronas Credit Card
-      if (rawName.toLowerCase().includes('maybank') && rawName.toLowerCase().includes('petronas')) {
+      if (rawName.toLowerCase().includes('maybank') && (rawName.toLowerCase().includes('petronas') || rawName.toLowerCase().includes('credit') || a.id === 'acc_mb_cc' || a.id === 'acc_1786843686714')) {
         a.bank = 'Maybank';
         a.type = 'credit_card';
-        a.credit_limit = a.credit_limit || 8000;
+        a.credit_limit = 6000;
       }
 
       // Fix RHB Credit Card
-      if (rawName.toLowerCase().includes('rhb') && (rawName.toLowerCase().includes('credit') || rawName.toLowerCase().includes('cashback'))) {
+      if (rawName.toLowerCase().includes('rhb') && (rawName.toLowerCase().includes('credit') || rawName.toLowerCase().includes('cashback') || a.id === 'acc_rhb_cc')) {
         a.bank = 'RHB Bank';
         a.type = 'credit_card';
-        a.credit_limit = a.credit_limit || 6000;
+        a.credit_limit = 5000;
       }
 
       // Deduplicate key
@@ -281,7 +282,7 @@ export class StorageService {
     const logs = this.getLogs();
     const newLog: AuditLog = {
       id: 'log_' + Date.now(),
-      timestamp: new Date().toLocaleString('en-GB', { hour12: false }).replace(',', ''),
+      timestamp: getMalaysiaTimestamp(),
       action,
       details,
       user
@@ -370,8 +371,7 @@ export class StorageService {
       }
     });
 
-    const now = new Date();
-    const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonthPrefix = getMalaysiaDateString().slice(0, 7);
 
     let incomeThisMonth = 0;
     let expenseThisMonth = 0;
@@ -578,10 +578,10 @@ export class StorageService {
   }
 
   /**
-   * Helper to parse messy date strings (e.g. from Google Sheets / SakuTrack) into YYYY-MM-DD
+   * Helper to parse messy date strings (e.g. from Google Sheets / SakuTrack) into YYYY-MM-DD in Malaysia GMT+8
    */
   static parseCleanDate(rawDate: any): string {
-    if (!rawDate) return new Date().toISOString().split('T')[0];
+    if (!rawDate) return getMalaysiaDateString();
     const str = String(rawDate).trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
       return str;
@@ -589,8 +589,9 @@ export class StorageService {
     const monthMap: Record<string, string> = {
       jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
       jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+      ogos: '08', mei: '05', mac: '03', dis: '12', okt: '10'
     };
-    const regexMatch = str.match(/([a-zA-Z]{3})\s+(\d{1,2})\s+(\d{4})/);
+    const regexMatch = str.match(/([a-zA-Z]{3,4})\s+(\d{1,2})\s+(\d{4})/);
     if (regexMatch) {
       const mStr = regexMatch[1].toLowerCase();
       const month = monthMap[mStr] || '01';
@@ -601,10 +602,7 @@ export class StorageService {
     try {
       const d = new Date(rawDate);
       if (!isNaN(d.getTime())) {
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
+        return getMalaysiaDateString(d);
       }
     } catch {}
     return str.slice(0, 10);
@@ -763,7 +761,7 @@ export class StorageService {
         color: acc.color || meta.color,
         icon: acc.icon || meta.icon,
         notes: acc.Notes || acc.notes || '',
-        updated_at: acc.CreatedAt || acc.updated_at || new Date().toISOString().split('T')[0],
+        updated_at: acc.CreatedAt || acc.updated_at || getMalaysiaDateString(),
       };
     });
   }
@@ -869,7 +867,7 @@ export class StorageService {
         }
         if (testRes && (testRes.status === 'success' || testRes.transactions || testRes.data)) {
           config.isConnected = true;
-          config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+          config.lastSynced = getMalaysiaTimeString(new Date(), false);
           this.saveGoogleSheetsConfig(config);
           return { success: true, message: 'Sambungan ke Google Apps Script & Sheets berjaya!' };
         }
@@ -962,7 +960,7 @@ export class StorageService {
         }
 
         config.isConnected = true;
-        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+        config.lastSynced = getMalaysiaTimeString(new Date(), false);
         this.saveGoogleSheetsConfig(config);
 
         return {
@@ -1020,7 +1018,7 @@ export class StorageService {
         }
 
         config.isConnected = true;
-        config.lastSynced = new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+        config.lastSynced = getMalaysiaTimeString(new Date(), false);
         this.saveGoogleSheetsConfig(config);
 
         return { 
@@ -1050,8 +1048,8 @@ export class StorageService {
         const sakuPayload = {
           TxID: payload.TxID || payload.id || `Tx_${Date.now()}`,
           id: payload.TxID || payload.id || `Tx_${Date.now()}`,
-          Date: payload.Date || payload.date || new Date().toISOString().split('T')[0],
-          date: payload.Date || payload.date || new Date().toISOString().split('T')[0],
+          Date: payload.Date || payload.date || getMalaysiaDateString(),
+          date: payload.Date || payload.date || getMalaysiaDateString(),
           Type: payload.Type || payload.type || 'expense',
           type: payload.Type || payload.type || 'expense',
           Category: payload.Category || payload.category || 'Lain-lain',
@@ -1094,7 +1092,7 @@ export class StorageService {
           from: payload.from_account_id || payload.from_account || payload.from,
           to: payload.to_account_id || payload.to_account || payload.to,
           amount: parseFloat(payload.amount) || 0,
-          date: payload.date || new Date().toISOString().split('T')[0],
+          date: payload.date || getMalaysiaDateString(),
           note: payload.note || 'Pindahan Antara Akaun',
           Username: payload.username || activeUsername || 'user',
           username: payload.username || activeUsername || 'user',

@@ -17,24 +17,104 @@ export function formatCurrency(amount: number, showSymbol = true): string {
 }
 
 /**
- * Format Date to Malay friendly string
- * e.g. 14 Ogos 2026
+ * Get current date string in YYYY-MM-DD format for Malaysia timezone (GMT+8 / Asia/Kuala_Lumpur)
+ */
+export function getMalaysiaDateString(inputDate?: string | number | Date): string {
+  try {
+    let dateObj: Date;
+    if (!inputDate) {
+      dateObj = new Date();
+    } else if (typeof inputDate === 'string' || typeof inputDate === 'number') {
+      dateObj = new Date(inputDate);
+    } else {
+      dateObj = inputDate;
+    }
+
+    if (isNaN(dateObj.getTime())) {
+      dateObj = new Date();
+    }
+
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(dateObj); // Returns "YYYY-MM-DD"
+  } catch (e) {
+    // Fallback: UTC + 8 hours
+    const now = inputDate instanceof Date ? inputDate : new Date();
+    const d = new Date(now.getTime() + 8 * 3600 * 1000);
+    return d.toISOString().split('T')[0];
+  }
+}
+
+/**
+ * Get current time string in HH:mm:ss (or HH:mm) for Malaysia timezone (GMT+8)
+ */
+export function getMalaysiaTimeString(inputDate?: string | number | Date, includeSeconds = true): string {
+  try {
+    const dateObj = inputDate ? (inputDate instanceof Date ? inputDate : new Date(inputDate)) : new Date();
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: includeSeconds ? '2-digit' : undefined,
+      hour12: false
+    }).format(dateObj);
+  } catch (e) {
+    const d = new Date();
+    return d.toLocaleTimeString('en-GB', { hour12: false });
+  }
+}
+
+/**
+ * Get complete Malaysia timestamp (e.g. "2026-08-18 10:30:00" or for audit logs)
+ */
+export function getMalaysiaTimestamp(inputDate?: string | number | Date): string {
+  return `${getMalaysiaDateString(inputDate)} ${getMalaysiaTimeString(inputDate, true)}`;
+}
+
+/**
+ * Format Date to Malay friendly string (GMT+8 aware)
+ * e.g. 18 Ogos 2026
  */
 export function formatDateMalay(dateStr?: string | Date): string {
   if (!dateStr) return '';
-  const d = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-  if (isNaN(d.getTime())) return String(dateStr);
 
   const monthsMalay = [
     'Januari', 'Februari', 'Mac', 'April', 'Mei', 'Jun',
     'Julai', 'Ogos', 'September', 'Oktober', 'November', 'Disember'
   ];
 
-  const day = d.getDate();
-  const month = monthsMalay[d.getMonth()];
-  const year = d.getFullYear();
+  // If already in YYYY-MM-DD format, parse year, month, day directly to avoid UTC timezone shifting
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
+    const [y, m, d] = dateStr.trim().split('-').map(Number);
+    return `${d} ${monthsMalay[m - 1]} ${y}`;
+  }
 
-  return `${day} ${month} ${year}`;
+  const d = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+  if (isNaN(d.getTime())) return String(dateStr);
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric'
+    }).formatToParts(d);
+
+    const day = parts.find(p => p.type === 'day')?.value || String(d.getDate());
+    const monthIdx = Number(parts.find(p => p.type === 'month')?.value || (d.getMonth() + 1)) - 1;
+    const year = parts.find(p => p.type === 'year')?.value || String(d.getFullYear());
+
+    return `${parseInt(day, 10)} ${monthsMalay[monthIdx]} ${year}`;
+  } catch (e) {
+    const day = d.getDate();
+    const month = monthsMalay[d.getMonth()];
+    const year = d.getFullYear();
+    return `${day} ${month} ${year}`;
+  }
 }
 
 /**

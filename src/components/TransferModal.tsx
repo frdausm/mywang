@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Account, Transaction } from '../types';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, getMalaysiaDateString } from '../utils/formatters';
 import { X, ArrowLeftRight, ArrowRight, ShieldCheck, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -28,10 +28,16 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [fromAccountId, setFromAccountId] = useState('');
   const [toAccountId, setToAccountId] = useState('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getMalaysiaDateString());
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setDate(getMalaysiaDateString());
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (accounts.length > 0) {
