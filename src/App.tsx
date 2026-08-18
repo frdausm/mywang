@@ -715,27 +715,8 @@ function DashboardApp() {
                   setIsTransferOpen(true);
                 }}
                 onAddAccount={() => setIsAddAccountOpen(true)}
-                onApplyInstitutionPreset={(presetAccounts) => {
-                  // Merge with existing account balances so user customized values are not lost
-                  const existingMap = new Map<string, Account>();
-                  accounts.forEach((a) => existingMap.set(a.id, a));
-                  const merged = presetAccounts.map((preset) => {
-                    const existing = existingMap.get(preset.id);
-                    if (existing && existing.balance !== 0) {
-                      return { ...preset, balance: existing.balance, notes: existing.notes || preset.notes };
-                    }
-                    return preset;
-                  });
-
-                  StorageService.saveAccounts(merged);
-                  setAccounts(merged);
-                  addToast('success', `Struktur Institusi Lengkap (${merged.length} Akaun & Pelaburan) berjaya diselaraskan!`);
-                  StorageService.saveToBackendServer({ accounts: merged, transactions }).catch(() => {});
-                  StorageService.syncWithGAS('batch_save_accounts', {
-                    accounts: merged,
-                    username: user?.username || 'admin',
-                  }).catch(() => {});
-                }}
+                onRefreshData={() => handleManualSync(true)}
+                isSyncing={isSyncing}
               />
             )}
 
