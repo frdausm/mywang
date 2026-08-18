@@ -1,8 +1,19 @@
 {
   "test": true,
-  "saved_at": "2026-08-18T14:06:21.840Z",
-  "last_saved_at": "2026-08-18T14:06:22.113Z",
+  "saved_at": "2026-08-18T14:09:32.849Z",
+  "last_saved_at": "2026-08-18T14:09:33.057Z",
   "transactions": [
+    {
+      "id": "tx_1787061549719",
+      "date": "2026-08-18",
+      "type": "income",
+      "category": "Lain-lain",
+      "amount": 5,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "TOPUP PIN",
+      "created_at": "Tue Aug 18 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
     {
       "id": "tx_1787022117160",
       "date": "2026-08-18",
@@ -24,61 +35,6 @@
       "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
       "note": "Pendapatan harian go+",
       "created_at": "Tue Aug 18 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "tx_1787061549719",
-      "date": "2026-08-18",
-      "type": "income",
-      "category": "Lain-lain",
-      "amount": 5,
-      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
-      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
-      "note": "TOPUP PIN",
-      "created_at": "Tue Aug 18 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "Tx_1786926254807",
-      "date": "2026-08-17",
-      "type": "expense",
-      "category": "Pindahan Keluar",
-      "amount": 365,
-      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
-      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
-      "note": "Topup Prepaid Failed",
-      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "tx_1786926126998",
-      "date": "2026-08-17",
-      "type": "income",
-      "category": "Bonus",
-      "amount": 0.09,
-      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
-      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
-      "note": "Pendapatan harian GO+",
-      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "tx_1786925943533",
-      "date": "2026-08-17",
-      "type": "expense",
-      "category": "Makanan & Minuman",
-      "amount": 7.5,
-      "account_id": "Maybank - Maybank",
-      "account_name": "Maybank - Maybank",
-      "note": "breakfast - kuih anak2",
-      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "tx_1786975565621",
-      "date": "2026-08-17",
-      "type": "income",
-      "category": "Lain-lain",
-      "amount": 4,
-      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
-      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
-      "note": "Tng pin",
-      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
       "id": "tx_1787010080726",
@@ -111,6 +67,50 @@
       "account_id": "Boost - Boost eWallet",
       "account_name": "Boost - Boost eWallet",
       "note": "Hibah",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "tx_1786975565621",
+      "date": "2026-08-17",
+      "type": "income",
+      "category": "Lain-lain",
+      "amount": 4,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "Tng pin",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "Tx_1786926254807",
+      "date": "2026-08-17",
+      "type": "expense",
+      "category": "Pindahan Keluar",
+      "amount": 365,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "Topup Prepaid Failed",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "tx_1786926126998",
+      "date": "2026-08-17",
+      "type": "income",
+      "category": "Bonus",
+      "amount": 0.09,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
+      "note": "Pendapatan harian GO+",
+      "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "tx_1786925943533",
+      "date": "2026-08-17",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 7.5,
+      "account_id": "Maybank - Maybank",
+      "account_name": "Maybank - Maybank",
+      "note": "breakfast - kuih anak2",
       "created_at": "Mon Aug 17 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
@@ -345,17 +345,6 @@
       "created_at": "Sun Aug 09 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
-      "id": "TX_1786195936203",
-      "date": "2026-08-08",
-      "type": "expense",
-      "category": "Lain-lain",
-      "amount": 20,
-      "account_id": "Maybank",
-      "account_name": "Maybank",
-      "note": "Akikah",
-      "created_at": "Sat Aug 08 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
       "id": "TX_1786196179458",
       "date": "2026-08-07",
       "type": "expense",
@@ -442,6 +431,17 @@
       "account_name": "Touch 'n Go",
       "note": "Dinner r&r Temerloh",
       "created_at": "Fri Aug 07 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "TX_1786195936203",
+      "date": "2026-08-08",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 20,
+      "account_id": "Maybank",
+      "account_name": "Maybank",
+      "note": "Akikah",
+      "created_at": "Sat Aug 08 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
       "id": "TX_1786195901436",
@@ -686,6 +686,50 @@
       "created_at": "Tue Jul 28 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
+      "id": "TX_1785180334088",
+      "date": "2026-07-23",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 100,
+      "account_id": "RHB",
+      "account_name": "RHB",
+      "note": "Topup tng pin",
+      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "TX_1785180220405",
+      "date": "2026-07-23",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 854.8,
+      "account_id": "RHB",
+      "account_name": "RHB",
+      "note": "Byrn cc cimb",
+      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "TX_1785180186482",
+      "date": "2026-07-23",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 1000,
+      "account_id": "RHB",
+      "account_name": "RHB",
+      "note": "Bayaran cc rhb",
+      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "TX_1785180138284",
+      "date": "2026-07-23",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 4.4,
+      "account_id": "RHB",
+      "account_name": "RHB",
+      "note": "Susu farm fresh",
+      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
       "id": "TX_1785124368843",
       "date": "2026-07-27",
       "type": "expense",
@@ -785,6 +829,17 @@
       "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
+      "id": "TX_1784963653398",
+      "date": "2026-07-25",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 3,
+      "account_id": "Maybank",
+      "account_name": "Maybank",
+      "note": "Parking mayang mall",
+      "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
       "id": "TX_1784958228206",
       "date": "2026-07-25",
       "type": "expense",
@@ -807,72 +862,6 @@
       "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     },
     {
-      "id": "TX_1784940538779",
-      "date": "2026-07-25",
-      "type": "expense",
-      "category": "Makanan & Minuman",
-      "amount": 23.8,
-      "account_id": "Maybank",
-      "account_name": "Maybank",
-      "note": "nasi minyak ayam gulai",
-      "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "TX_1784963653398",
-      "date": "2026-07-25",
-      "type": "expense",
-      "category": "Lain-lain",
-      "amount": 3,
-      "account_id": "Maybank",
-      "account_name": "Maybank",
-      "note": "Parking mayang mall",
-      "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "TX_1785180334088",
-      "date": "2026-07-23",
-      "type": "expense",
-      "category": "Lain-lain",
-      "amount": 100,
-      "account_id": "RHB",
-      "account_name": "RHB",
-      "note": "Topup tng pin",
-      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "TX_1785180220405",
-      "date": "2026-07-23",
-      "type": "expense",
-      "category": "Lain-lain",
-      "amount": 854.8,
-      "account_id": "RHB",
-      "account_name": "RHB",
-      "note": "Byrn cc cimb",
-      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "TX_1785180186482",
-      "date": "2026-07-23",
-      "type": "expense",
-      "category": "Lain-lain",
-      "amount": 1000,
-      "account_id": "RHB",
-      "account_name": "RHB",
-      "note": "Bayaran cc rhb",
-      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
-      "id": "TX_1785180138284",
-      "date": "2026-07-23",
-      "type": "expense",
-      "category": "Makanan & Minuman",
-      "amount": 4.4,
-      "account_id": "RHB",
-      "account_name": "RHB",
-      "note": "Susu farm fresh",
-      "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
-    },
-    {
       "id": "TX_1784940690851",
       "date": "2026-07-23",
       "type": "income",
@@ -882,9 +871,20 @@
       "account_name": "RHB",
       "note": "GAJI BULAN JULAI",
       "created_at": "Thu Jul 23 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
+    },
+    {
+      "id": "TX_1784940538779",
+      "date": "2026-07-25",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 23.8,
+      "account_id": "Maybank",
+      "account_name": "Maybank",
+      "note": "nasi minyak ayam gulai",
+      "created_at": "Sat Jul 25 2026 00:00:00 GMT+0800 (Singapore Standard Time)"
     }
   ],
-  "last_gas_synced": "2026-08-18T14:06:19.952Z",
+  "last_gas_synced": "2026-08-18T14:10:38.739Z",
   "username": "admin",
   "accounts": [
     {
@@ -1313,7 +1313,7 @@
     "webAppUrl": "https://script.google.com/macros/s/AKfycbx7jSb1NjRkNhEouyJMwRyfWiF98lAAdwsvpCAcDF_MoiNdxQWFtEzO8ncoGyPEJF31/exec",
     "autoSync": true,
     "isConnected": true,
-    "lastSynced": "22:06"
+    "lastSynced": "22:09"
   },
   "secretPasscode": "7445"
 }
