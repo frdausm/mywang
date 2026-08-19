@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Account, CategoryItem, Transaction, TransactionType } from '../types';
-import { getMalaysiaDateString } from '../utils/formatters';
+import { getMalaysiaDateString, roundToTwoDecimals } from '../utils/formatters';
 import { X, Plus, ArrowDownLeft, ArrowUpRight, Scale, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -60,7 +60,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   if (!isOpen) return null;
 
   const currentCategories = type === 'income' ? incomeCategories : expenseCategories;
-  const numAmount = parseFloat(amount) || 0;
+  const numAmount = roundToTwoDecimals(amount);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
