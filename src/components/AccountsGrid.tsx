@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Account, Transaction } from '../types';
 import { formatCurrency, formatDateMalay, getBankVisuals } from '../utils/formatters';
+import { matchAccountId } from '../utils/accountMatcher';
 import { 
   Pencil, 
   ArrowLeftRight, 
@@ -80,49 +81,13 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
       map[acc.id] = { netMovement: 0, txCount: 0 };
     });
 
-    // Helper to find matching account ID in map for any transaction account reference
-    const findMatchedAccountId = (txAccId?: string, txAccName?: string): string | null => {
-      if (txAccId && map[txAccId] !== undefined) return txAccId;
-      
-      const cleanId = (txAccId || '').toLowerCase().trim();
-      const cleanName = (txAccName || '').toLowerCase().trim();
-
-      for (const acc of accounts) {
-        const accId = (acc.id || '').toLowerCase().trim();
-        const accBank = (acc.bank || '').toLowerCase().trim();
-        const accName = (acc.account_name || '').toLowerCase().trim();
-        const fullCombo = `${accBank} - ${accName}`.toLowerCase();
-
-        if (
-          accId === cleanId ||
-          (cleanId && (cleanId === fullCombo || cleanId === accName || cleanId === accBank)) ||
-          (cleanName && (cleanName === fullCombo || cleanName === accName || cleanName === accBank))
-        ) {
-          return acc.id;
-        }
-      }
-
-      // Fuzzy fallback for Touch n Go eWallet vs GO+
-      if (cleanId.includes('touch') || cleanId.includes('tng') || cleanName.includes('touch') || cleanName.includes('tng')) {
-        const isGoPlus = cleanId.includes('go+') || cleanId.includes('goplus') || cleanName.includes('go+') || cleanName.includes('goplus');
-        const matched = accounts.find((a) => {
-          const aName = (a.account_name || '').toLowerCase();
-          const aId = (a.id || '').toLowerCase();
-          return isGoPlus ? (aName.includes('go+') || aId.includes('goplus')) : (!aName.includes('go+') && !aId.includes('goplus') && (a.bank.toLowerCase().includes('touch') || a.bank.toLowerCase().includes('tng') || aId.includes('tng')));
-        });
-        if (matched) return matched.id;
-      }
-
-      return null;
-    };
-
     transactions.forEach((tx) => {
       const txDate = tx.date || tx.created_at || '';
       if (!txDate.startsWith(currentMonthPrefix)) return;
       const amt = Number(tx.amount) || 0;
 
       // Source account
-      const matchedSrcId = findMatchedAccountId(tx.account_id, tx.account_name);
+      const matchedSrcId = matchAccountId(tx.account_id, tx.account_name, accounts, tx.note);
       if (matchedSrcId && map[matchedSrcId]) {
         map[matchedSrcId].txCount++;
         if (tx.type === 'income' || tx.type === 'refund') {
@@ -138,7 +103,7 @@ export const AccountsGrid: React.FC<AccountsGridProps> = ({
 
       // Destination transfer account
       if (tx.type === 'transfer') {
-        const matchedDstId = findMatchedAccountId(tx.to_account_id, tx.to_account_name);
+        const matchedDstId = matchAccountId(tx.to_account_id, tx.to_account_name, accounts, tx.note);
         if (matchedDstId && map[matchedDstId]) {
           map[matchedDstId].txCount++;
           map[matchedDstId].netMovement += amt;
