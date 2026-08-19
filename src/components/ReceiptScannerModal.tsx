@@ -58,6 +58,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   const [scanSource, setScanSource] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -70,6 +71,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       setNote('');
       setItems([]);
       setError(null);
+      submittingRef.current = false;
       if (accounts.length > 0) setAccountId(accounts[0].id);
     }
   }, [isOpen, initialMode]);
@@ -212,36 +214,44 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     const numAmount = parseFloat(amount);
     if (!numAmount || numAmount <= 0) {
       setError('Sila pastikan jumlah bayaran sah.');
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
-    const selectedAcc = accounts.find(a => a.id === accountId);
+    try {
+      const selectedAcc = accounts.find(a => a.id === accountId);
 
-    await onSaveScannedTransaction({
-      date,
-      account_id: accountId,
-      account_name: selectedAcc ? `${selectedAcc.bank} - ${selectedAcc.account_name}` : undefined,
-      type: scanType,
-      category: category || (scanType === 'income' ? 'Gaji' : 'Makanan & Minuman'),
-      amount: numAmount,
-      note: note.trim() || (scanType === 'income' ? `Masuk: ${merchant}` : `Resit: ${merchant}`),
-      receipt_url: imagePreview || undefined,
-      receipt_data: {
-        merchant,
-        amount: numAmount,
+      await onSaveScannedTransaction({
         date,
-        category,
-        items,
-        note,
-      },
-    });
+        account_id: accountId,
+        account_name: selectedAcc ? `${selectedAcc.bank} - ${selectedAcc.account_name}` : undefined,
+        type: scanType,
+        category: category || (scanType === 'income' ? 'Gaji' : 'Makanan & Minuman'),
+        amount: numAmount,
+        note: note.trim() || (scanType === 'income' ? `Masuk: ${merchant}` : `Resit: ${merchant}`),
+        receipt_url: imagePreview || undefined,
+        receipt_data: {
+          merchant,
+          amount: numAmount,
+          date,
+          category,
+          items,
+          note,
+        },
+      });
 
-    setIsSubmitting(false);
-    onClose();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Ralat menyimpan transaksi imbasan.');
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const isIncome = scanType === 'income';
