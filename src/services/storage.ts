@@ -395,27 +395,54 @@ export class StorageService {
   }
 
   /**
-   * Deduplication & Smart Merge for Transactions
+   * Deduplication & Smart Merge for Transactions (Prevents any redundant data by ID or content fingerprint)
    */
   static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
     const byIdMap = new Map<string, Transaction>();
+    const fingerprintSet = new Set<string>();
 
-    // 1. Index local transactions
-    localList.forEach((tx) => {
-      if (tx && tx.id) {
-        byIdMap.set(tx.id, tx);
+    const makeFingerprint = (tx: Partial<Transaction>): string => {
+      const d = String(tx.date || tx.created_at || '').slice(0, 10);
+      const t = String(tx.type || 'expense').toLowerCase();
+      const c = String(tx.category || '').toLowerCase().trim();
+      const a = (Math.round((Number(tx.amount) || 0) * 100) / 100).toFixed(2);
+      const acc = String(tx.account_name || tx.account_id || '').toLowerCase().trim();
+      const note = String(tx.note || '').toLowerCase().trim();
+      return `${d}|${t}|${c}|${a}|${acc}|${note}`;
+    };
+
+    // 1. Index and deduplicate local transactions
+    (localList || []).forEach((tx) => {
+      if (!tx) return;
+      const cleanId = String(tx.id || '').trim();
+      if (!cleanId) return;
+
+      const fp = makeFingerprint(tx);
+      if (!byIdMap.has(cleanId) && !fingerprintSet.has(fp)) {
+        byIdMap.set(cleanId, tx);
+        fingerprintSet.add(fp);
       }
     });
 
-    // 2. Merge incoming transactions
-    incomingList.forEach((tx, idx) => {
+    // 2. Merge incoming transactions without creating duplicate rows
+    (incomingList || []).forEach((tx, idx) => {
       if (!tx) return;
-      const targetId = tx.id || `tx_in_${Date.now()}_${idx}`;
-      if (byIdMap.has(targetId)) {
-        const existing = byIdMap.get(targetId)!;
-        byIdMap.set(targetId, { ...existing, ...tx, id: targetId });
-      } else {
-        byIdMap.set(targetId, { ...tx, id: targetId });
+      const cleanId = String(tx.id || `tx_in_${Date.now()}_${idx}`).trim();
+      const fp = makeFingerprint(tx);
+
+      if (byIdMap.has(cleanId)) {
+        const existing = byIdMap.get(cleanId)!;
+        byIdMap.set(cleanId, {
+          ...existing,
+          ...tx,
+          id: cleanId,
+          // Preserve any existing receipt image if incoming is empty
+          receipt_url: tx.receipt_url || existing.receipt_url,
+          created_at: existing.created_at || tx.created_at,
+        });
+      } else if (!fingerprintSet.has(fp)) {
+        byIdMap.set(cleanId, { ...tx, id: cleanId });
+        fingerprintSet.add(fp);
       }
     });
 
@@ -676,7 +703,7 @@ export class StorageService {
       return 'ACC_001';
     };
 
-    return rawList.map((tx: any, idx: number) => {
+    const mappedList: Transaction[] = rawList.map((tx: any, idx: number) => {
       const rawDate = tx.date || tx.created_at || new Date().toISOString();
       const cleanDate = this.parseCleanDate(rawDate);
       const accName = tx.account_name || tx.source || tx.method || tx.account || 'Maybank - Savings Account';
@@ -684,7 +711,7 @@ export class StorageService {
       const isIncome = String(tx.type).toLowerCase() === 'income';
 
       return {
-        id: String(tx.id || `tx_sync_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`),
+        id: String(tx.id || tx.TxID || `tx_sync_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`),
         date: cleanDate,
         type: isIncome ? 'income' : tx.type === 'transfer' ? 'transfer' : 'expense',
         category: tx.category || tx.income_type || tx.expense_type || 'Lain-lain',
@@ -698,6 +725,9 @@ export class StorageService {
         created_at: String(tx.created_at || cleanDate),
       };
     });
+
+    // Automatically deduplicate any raw transactions from sheet
+    return this.mergeAndDeduplicateTransactions([], mappedList);
   }
 
   /**
@@ -1037,28 +1067,7 @@ export class StorageService {
           username: payload.Username || payload.username || activeUsername || 'user',
         };
 
-        let gasResult: any = null;
-        try {
-          gasResult = await executeGasCall('save_account', sakuAccPayload);
-        } catch {}
-
-        if (!gasResult || gasResult.status !== 'success') {
-          try {
-            gasResult = await executeGasCall('saveAccount', sakuAccPayload);
-          } catch {}
-        }
-
-        if (!gasResult || gasResult.status !== 'success') {
-          try {
-            gasResult = await executeGasCall('edit_account', sakuAccPayload);
-          } catch {}
-        }
-
-        if (!gasResult || gasResult.status !== 'success') {
-          try {
-            gasResult = await executeGasCall('add_account', sakuAccPayload);
-          } catch {}
-        }
+        const gasResult = await executeGasCall('save_account', sakuAccPayload);
 
         config.isConnected = true;
         config.lastSynced = getMalaysiaTimeString(new Date(), false);
@@ -1074,15 +1083,7 @@ export class StorageService {
       // Handle deleteAccount / delete_account
       if (action === 'deleteAccount' || action === 'delete_account') {
         const accId = payload.AccountID || payload.id || payload.account_id;
-        let delRes: any = null;
-        try {
-          delRes = await executeGasCall('delete_account', { AccountID: accId, id: accId });
-        } catch {}
-        if (!delRes || delRes.status !== 'success') {
-          try {
-            delRes = await executeGasCall('deleteAccount', { AccountID: accId, id: accId });
-          } catch {}
-        }
+        const delRes = await executeGasCall('delete_account', { AccountID: accId, id: accId });
         return { success: true, message: delRes?.message || 'Akaun berjaya dipadam dari Google Sheets.' };
       }
 
@@ -1113,15 +1114,7 @@ export class StorageService {
           username: payload.Username || payload.username || activeUsername || 'user',
         };
 
-        let txRes: any = null;
-        try {
-          txRes = await executeGasCall('add_transaction', sakuPayload);
-        } catch {}
-        if (!txRes || txRes.status !== 'success') {
-          try {
-            txRes = await executeGasCall('addTransaction', sakuPayload);
-          } catch {}
-        }
+        const txRes = await executeGasCall('add_transaction', sakuPayload);
         return { success: true, message: txRes?.message || 'Transaksi direkod ke Google Sheets.' };
       }
 
@@ -1141,20 +1134,7 @@ export class StorageService {
           username: payload.username || activeUsername || 'user',
         };
 
-        let transferRes: any = null;
-        try {
-          transferRes = await executeGasCall('transferMoney', transferPayload);
-        } catch {}
-        if (!transferRes || transferRes.status !== 'success') {
-          try {
-            transferRes = await executeGasCall('transfer_money', transferPayload);
-          } catch {}
-        }
-        if (!transferRes || transferRes.status !== 'success') {
-          try {
-            transferRes = await executeGasCall('recordTransfer', transferPayload);
-          } catch {}
-        }
+        const transferRes = await executeGasCall('transferMoney', transferPayload);
         return { success: true, data: transferRes?.data, message: transferRes?.message || 'Pindahan berjaya diselaraskan ke Google Sheets!' };
       }
 
