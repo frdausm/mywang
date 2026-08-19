@@ -971,7 +971,7 @@ app.post("/api/gas-proxy", async (req, res) => {
     if (action === "addTransaction" || action === "add_transaction") {
       try {
         const txType = String(data.type || "expense").toLowerCase();
-        const amt = parseFloat(data.amount) || 0;
+        const amt = Math.round((Math.abs(parseFloat(data.amount)) || 0) * 100) / 100;
         const targetAccId = String(data.account_id || "").toLowerCase();
         const targetAccName = String(data.account_name || "").toLowerCase();
         const txId = String(data.id || data.TxID || `TX_${Date.now()}`);
@@ -995,8 +995,8 @@ app.post("/api/gas-proxy", async (req, res) => {
                   (targetAccId && (accName.includes(targetAccId) || bankName.includes(targetAccId))) ||
                   (targetAccName && (accName.includes(targetAccName) || bankName.includes(targetAccName)))
                 ) {
-                  const cur = Number(acc.balance !== undefined ? acc.balance : acc.InitialBalance) || 0;
-                  const newBal = txType === "income" ? cur + amt : cur - amt;
+                  const cur = Math.round((Number(acc.balance !== undefined ? acc.balance : acc.InitialBalance) || 0) * 100) / 100;
+                  const newBal = Math.round((txType === "income" ? cur + amt : cur - amt) * 100) / 100;
                   return { ...acc, balance: newBal, InitialBalance: newBal };
                 }
                 return acc;
