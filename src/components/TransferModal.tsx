@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Account, Transaction } from '../types';
-import { formatCurrency, getMalaysiaDateString } from '../utils/formatters';
+import { formatCurrency, getMalaysiaDateString, roundToTwoDecimals } from '../utils/formatters';
 import { X, ArrowLeftRight, ArrowRight, ShieldCheck, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -56,7 +56,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
   const fromAcc = accounts.find((a) => a.id === fromAccountId);
   const toAcc = accounts.find((a) => a.id === toAccountId);
-  const numAmount = parseFloat(amount) || 0;
+  const numAmount = roundToTwoDecimals(amount);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
