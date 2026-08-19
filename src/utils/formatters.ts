@@ -1,9 +1,18 @@
 /**
+ * Round any number or numeric string strictly to 2 decimal places (prevents floating-point drift e.g., xxx.xx)
+ */
+export function roundToTwoDecimals(val: number | string | undefined | null): number {
+  if (val === undefined || val === null || isNaN(Number(val))) return 0;
+  return Math.round((Number(val) + Number.EPSILON) * 100) / 100;
+}
+
+/**
  * Format currency to Malaysian Ringgit (MYR / RM)
  */
 export function formatCurrency(amount: number, showSymbol = true): string {
-  const isNegative = amount < 0;
-  const absAmount = Math.abs(amount);
+  const rounded = roundToTwoDecimals(amount);
+  const isNegative = rounded < 0;
+  const absAmount = Math.abs(rounded);
   
   const formatted = absAmount.toLocaleString('en-MY', {
     minimumFractionDigits: 2,
