@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Account } from '../types';
-import { getMalaysiaDateString } from '../utils/formatters';
+import { getMalaysiaDateString, roundToTwoDecimals } from '../utils/formatters';
 import { X, Check, Landmark, CreditCard, Smartphone, DollarSign, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -48,7 +48,7 @@ export const EditAccountModal: React.FC<EditAccountModalProps> = ({
     e.preventDefault();
     setIsSaving(true);
 
-    const numBalance = parseFloat(balance) || 0;
+    const numBalance = roundToTwoDecimals(balance);
     const updated: Account = {
       ...account,
       account_name: accountName.trim() || account.bank,
