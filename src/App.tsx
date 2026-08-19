@@ -28,6 +28,7 @@ import { ToastContainer, ToastMessage } from './components/Toast';
 import { StorageService } from './services/storage';
 import { Account, Transaction, CategoryItem, AuditLog, TransactionType, LoanFinancing } from './types';
 import { getMalaysiaDateString, getMalaysiaTimestamp } from './utils/formatters';
+import { matchAccount, matchAccountId } from './utils/accountMatcher';
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -406,7 +407,7 @@ function DashboardApp() {
 
   // 5. Add Transaction (Income, Expense, Adjustment, or Scanned Receipt)
   const handleAddTransaction = async (txData: Omit<Transaction, 'id' | 'created_at'>) => {
-    const targetAcc = accounts.find((a) => a.id === txData.account_id);
+    const targetAcc = matchAccount(txData.account_id, txData.account_name, accounts, txData.note) || accounts.find((a) => a.id === txData.account_id);
     let updatedAccounts = accounts;
     const txAmount = Number(txData.amount) || 0;
     
@@ -428,6 +429,8 @@ function DashboardApp() {
 
     const newTx: Transaction = {
       ...txData,
+      account_id: targetAcc ? targetAcc.id : txData.account_id,
+      account_name: targetAcc ? `${targetAcc.bank} - ${targetAcc.account_name}` : txData.account_name,
       amount: txAmount,
       id: 'tx_' + Date.now(),
       created_at: new Date().toISOString(),
@@ -501,38 +504,53 @@ function DashboardApp() {
     
     // Adjust account balance for differences
     if (oldTx) {
+      const oldSrc = matchAccount(oldTx.account_id, oldTx.account_name, accounts, oldTx.note);
+      const oldDst = oldTx.to_account_id ? matchAccount(oldTx.to_account_id, oldTx.to_account_name, accounts, oldTx.note) : undefined;
+      const newSrc = matchAccount(updatedTx.account_id, updatedTx.account_name, accounts, updatedTx.note);
+      const newDst = updatedTx.to_account_id ? matchAccount(updatedTx.to_account_id, updatedTx.to_account_name, accounts, updatedTx.note) : undefined;
+
       // Revert old impact
-      if (oldTx.type === 'income') {
+      if (oldTx.type === 'income' && oldSrc) {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === oldTx.account_id ? { ...a, balance: Math.round((a.balance - oldAmt) * 100) / 100 } : a
+          a.id === oldSrc.id ? { ...a, balance: Math.round((a.balance - oldAmt) * 100) / 100 } : a
         );
-      } else if (oldTx.type === 'expense') {
+      } else if (oldTx.type === 'expense' && oldSrc) {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === oldTx.account_id ? { ...a, balance: Math.round((a.balance + oldAmt) * 100) / 100 } : a
+          a.id === oldSrc.id ? { ...a, balance: Math.round((a.balance + oldAmt) * 100) / 100 } : a
         );
-      } else if (oldTx.type === 'transfer' && oldTx.to_account_id) {
-        updatedAccounts = updatedAccounts.map((a) => {
-          if (a.id === oldTx.account_id) return { ...a, balance: Math.round((a.balance + oldAmt) * 100) / 100 };
-          if (a.id === oldTx.to_account_id) return { ...a, balance: Math.round((a.balance - oldAmt) * 100) / 100 };
-          return a;
-        });
+      } else if (oldTx.type === 'transfer') {
+        if (oldSrc) {
+          updatedAccounts = updatedAccounts.map((a) =>
+            a.id === oldSrc.id ? { ...a, balance: Math.round((a.balance + oldAmt) * 100) / 100 } : a
+          );
+        }
+        if (oldDst) {
+          updatedAccounts = updatedAccounts.map((a) =>
+            a.id === oldDst.id ? { ...a, balance: Math.round((a.balance - oldAmt) * 100) / 100 } : a
+          );
+        }
       }
 
       // Apply new impact
-      if (updatedTx.type === 'income') {
+      if (updatedTx.type === 'income' && newSrc) {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === updatedTx.account_id ? { ...a, balance: Math.round((a.balance + newAmt) * 100) / 100, updated_at: updatedTx.date } : a
+          a.id === newSrc.id ? { ...a, balance: Math.round((a.balance + newAmt) * 100) / 100, updated_at: updatedTx.date } : a
         );
-      } else if (updatedTx.type === 'expense') {
+      } else if (updatedTx.type === 'expense' && newSrc) {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === updatedTx.account_id ? { ...a, balance: Math.round((a.balance - newAmt) * 100) / 100, updated_at: updatedTx.date } : a
+          a.id === newSrc.id ? { ...a, balance: Math.round((a.balance - newAmt) * 100) / 100, updated_at: updatedTx.date } : a
         );
-      } else if (updatedTx.type === 'transfer' && updatedTx.to_account_id) {
-        updatedAccounts = updatedAccounts.map((a) => {
-          if (a.id === updatedTx.account_id) return { ...a, balance: Math.round((a.balance - newAmt) * 100) / 100, updated_at: updatedTx.date };
-          if (a.id === updatedTx.to_account_id) return { ...a, balance: Math.round((a.balance + newAmt) * 100) / 100, updated_at: updatedTx.date };
-          return a;
-        });
+      } else if (updatedTx.type === 'transfer') {
+        if (newSrc) {
+          updatedAccounts = updatedAccounts.map((a) =>
+            a.id === newSrc.id ? { ...a, balance: Math.round((a.balance - newAmt) * 100) / 100, updated_at: updatedTx.date } : a
+          );
+        }
+        if (newDst) {
+          updatedAccounts = updatedAccounts.map((a) =>
+            a.id === newDst.id ? { ...a, balance: Math.round((a.balance + newAmt) * 100) / 100, updated_at: updatedTx.date } : a
+          );
+        }
       }
 
       setAccounts(updatedAccounts);
@@ -558,21 +576,29 @@ function DashboardApp() {
     let updatedAccounts = [...accounts];
     if (target) {
       const tgtAmt = Number(target.amount) || 0;
+      const targetSrc = matchAccount(target.account_id, target.account_name, accounts, target.note);
+      const targetDst = target.to_account_id ? matchAccount(target.to_account_id, target.to_account_name, accounts, target.note) : undefined;
+
       // Revert account balance automatically
-      if (target.type === 'income') {
+      if (target.type === 'income' && targetSrc) {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === target.account_id ? { ...a, balance: Math.round((a.balance - tgtAmt) * 100) / 100 } : a
+          a.id === targetSrc.id ? { ...a, balance: Math.round((a.balance - tgtAmt) * 100) / 100 } : a
         );
-      } else if (target.type === 'expense') {
+      } else if (target.type === 'expense' && targetSrc) {
         updatedAccounts = updatedAccounts.map((a) =>
-          a.id === target.account_id ? { ...a, balance: Math.round((a.balance + tgtAmt) * 100) / 100 } : a
+          a.id === targetSrc.id ? { ...a, balance: Math.round((a.balance + tgtAmt) * 100) / 100 } : a
         );
-      } else if (target.type === 'transfer' && target.to_account_id) {
-        updatedAccounts = updatedAccounts.map((a) => {
-          if (a.id === target.account_id) return { ...a, balance: Math.round((a.balance + tgtAmt) * 100) / 100 };
-          if (a.id === target.to_account_id) return { ...a, balance: Math.round((a.balance - tgtAmt) * 100) / 100 };
-          return a;
-        });
+      } else if (target.type === 'transfer') {
+        if (targetSrc) {
+          updatedAccounts = updatedAccounts.map((a) =>
+            a.id === targetSrc.id ? { ...a, balance: Math.round((a.balance + tgtAmt) * 100) / 100 } : a
+          );
+        }
+        if (targetDst) {
+          updatedAccounts = updatedAccounts.map((a) =>
+            a.id === targetDst.id ? { ...a, balance: Math.round((a.balance - tgtAmt) * 100) / 100 } : a
+          );
+        }
       }
       setAccounts(updatedAccounts);
       StorageService.saveAccounts(updatedAccounts);
