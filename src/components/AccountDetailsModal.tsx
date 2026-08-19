@@ -2,6 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { Account, Transaction } from '../types';
 import { formatCurrency, formatDateMalay, getBankVisuals } from '../utils/formatters';
 import {
+  isTransactionForAccount,
+  isTransactionSourceForAccount,
+  isTransactionDestinationForAccount,
+} from '../utils/accountMatcher';
+import {
   X,
   CreditCard,
   Smartphone,
@@ -74,10 +79,8 @@ export const AccountDetailsModal: React.FC<AccountDetailsModalProps> = ({
   // Filter transactions belonging to this account (either as source account or destination transfer account)
   const accountTransactions = useMemo(() => {
     if (!account) return [];
-    return transactions.filter(
-      (tx) => tx.account_id === account.id || (tx.type === 'transfer' && tx.to_account_id === account.id)
-    );
-  }, [transactions, account?.id]);
+    return transactions.filter((tx) => isTransactionForAccount(tx, account, accounts));
+  }, [transactions, account, accounts]);
 
   // Current Month calculations for this account
   const currentMonthPrefix = selectedMonth;
@@ -96,20 +99,24 @@ export const AccountDetailsModal: React.FC<AccountDetailsModalProps> = ({
 
     currentMonthTxs.forEach((tx) => {
       const amt = Number(tx.amount) || 0;
+      const isSource = isTransactionSourceForAccount(tx, account, accounts);
+      const isDest = isTransactionDestinationForAccount(tx, account, accounts);
+
       if (tx.type === 'income' || tx.type === 'refund') {
-        if (tx.account_id === account.id) inflows += amt;
+        if (isSource) inflows += amt;
       } else if (tx.type === 'expense') {
-        if (tx.account_id === account.id) outflows += amt;
+        if (isSource) outflows += amt;
       } else if (tx.type === 'transfer') {
-        if (tx.account_id === account.id) {
+        if (isSource) {
           transferOut += amt;
           outflows += amt;
-        } else if (tx.to_account_id === account.id) {
+        }
+        if (isDest) {
           transferIn += amt;
           inflows += amt;
         }
       } else if (tx.type === 'adjustment') {
-        if (tx.account_id === account.id) {
+        if (isSource) {
           if (amt > 0) inflows += amt;
           else outflows += Math.abs(amt);
         }
@@ -125,7 +132,7 @@ export const AccountDetailsModal: React.FC<AccountDetailsModalProps> = ({
       netMovement,
       txCount: currentMonthTxs.length,
     };
-  }, [currentMonthTxs, account?.id]);
+  }, [currentMonthTxs, account, accounts]);
 
   // Filtered transactions for the History tab
   const filteredHistory = useMemo(() => {
