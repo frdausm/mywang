@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Account, CategoryItem, ReceiptScanResult, Transaction } from '../types';
-import { formatCurrency, getMalaysiaDateString } from '../utils/formatters';
+import { formatCurrency, getMalaysiaDateString, roundToTwoDecimals } from '../utils/formatters';
 import { 
   X, 
   UploadCloud, 
@@ -215,7 +215,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingRef.current) return;
-    const numAmount = parseFloat(amount);
+    const numAmount = roundToTwoDecimals(amount);
     if (!numAmount || numAmount <= 0) {
       setError('Sila pastikan jumlah bayaran sah.');
       return;
