@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Transaction, Account, SummaryStats } from '../types';
 import { formatCurrency, formatDateMalay } from '../utils/formatters';
+import { isTransactionForAccount } from '../utils/accountMatcher';
 import { exportTransactionsToExcel } from '../utils/excelExporter';
 import { exportTransactionsToPDF } from '../utils/pdfExporter';
 import { 
@@ -69,8 +70,13 @@ export const TransactionsModule: React.FC<TransactionsModuleProps> = ({
       }
 
       // Account filter
-      if (selectedAccountId !== 'all' && tx.account_id !== selectedAccountId && tx.to_account_id !== selectedAccountId) {
-        return false;
+      if (selectedAccountId !== 'all') {
+        const targetAcc = accounts.find((a) => a.id === selectedAccountId);
+        if (targetAcc) {
+          if (!isTransactionForAccount(tx, targetAcc, accounts)) return false;
+        } else if (tx.account_id !== selectedAccountId && tx.to_account_id !== selectedAccountId) {
+          return false;
+        }
       }
 
       // Month filter
@@ -80,7 +86,7 @@ export const TransactionsModule: React.FC<TransactionsModuleProps> = ({
 
       return true;
     });
-  }, [transactions, searchTerm, selectedType, selectedAccountId, selectedMonth]);
+  }, [transactions, searchTerm, selectedType, selectedAccountId, selectedMonth, accounts]);
 
   // Pagination
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
