@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, Account, CategoryItem } from '../types';
+import { matchAccount } from '../utils/accountMatcher';
 import { X, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Calendar, Tag, FileText, Landmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -37,11 +38,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       setDate(transaction.date);
       setAmount(transaction.amount.toString());
       setCategory(transaction.category);
-      setAccountId(transaction.account_id);
-      setToAccountId(transaction.to_account_id || '');
+      const matched = matchAccount(transaction.account_id, transaction.account_name, accounts, transaction.note);
+      setAccountId(matched ? matched.id : (transaction.account_id || (accounts[0]?.id || '')));
+      const matchedTo = matchAccount(transaction.to_account_id, transaction.to_account_name, accounts, transaction.note);
+      setToAccountId(matchedTo ? matchedTo.id : (transaction.to_account_id || ''));
       setNote(transaction.note || '');
     }
-  }, [transaction]);
+  }, [transaction, accounts]);
 
   if (!isOpen || !transaction) return null;
 
