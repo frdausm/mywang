@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, Account, CategoryItem } from '../types';
 import { matchAccount } from '../utils/accountMatcher';
+import { roundToTwoDecimals } from '../utils/formatters';
 import { X, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Calendar, Tag, FileText, Landmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -56,7 +57,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const numAmount = parseFloat(amount);
+    const numAmount = roundToTwoDecimals(amount);
     if (!numAmount || numAmount <= 0) {
       return;
     }
