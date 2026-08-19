@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Account, AccountType } from '../types';
-import { getMalaysiaDateString } from '../utils/formatters';
+import { getMalaysiaDateString, roundToTwoDecimals } from '../utils/formatters';
 import { X, Plus, Landmark, Smartphone, CreditCard, Clock, PiggyBank, Wallet, Sparkles, Coins } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -55,7 +55,7 @@ export const AddAccountModal: React.FC<AddAccountModalProps> = ({
 
     const institutionName = bank === 'Lain-lain' && customBank.trim() ? customBank.trim() : bank;
     const finalAccountName = accountName.trim() || `${institutionName} Akaun`;
-    const numBalance = parseFloat(balance) || 0;
+    const numBalance = roundToTwoDecimals(balance);
 
     const newAcc: Account = {
       id: 'acc_' + Date.now(),
