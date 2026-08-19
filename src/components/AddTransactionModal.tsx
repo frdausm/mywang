@@ -31,11 +31,13 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const submittingRef = React.useRef(false);
 
   useEffect(() => {
     if (isOpen) {
       setDate(getMalaysiaDateString());
       setType(defaultType);
+      submittingRef.current = false;
     }
   }, [defaultType, isOpen]);
 
@@ -62,6 +64,7 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     setError('');
 
     if (!accountId) {
@@ -74,21 +77,28 @@ export const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
-    const selectedAcc = accounts.find((a) => a.id === accountId);
+    try {
+      const selectedAcc = accounts.find((a) => a.id === accountId);
 
-    await onAddTransaction({
-      date,
-      account_id: accountId,
-      account_name: selectedAcc ? `${selectedAcc.bank} - ${selectedAcc.account_name}` : undefined,
-      type,
-      category: category || (type === 'income' ? 'Gaji' : 'Perbelanjaan'),
-      amount: numAmount,
-      note: note.trim(),
-    });
+      await onAddTransaction({
+        date,
+        account_id: accountId,
+        account_name: selectedAcc ? `${selectedAcc.bank} - ${selectedAcc.account_name}` : undefined,
+        type,
+        category: category || (type === 'income' ? 'Gaji' : 'Perbelanjaan'),
+        amount: numAmount,
+        note: note.trim(),
+      });
 
-    setIsSubmitting(false);
-    onClose();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'Ralat menyimpan transaksi.');
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   return (
