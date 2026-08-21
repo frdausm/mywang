@@ -153,11 +153,16 @@ function DashboardApp() {
     // 1. Initial multi-device backend restore (if backend available)
     StorageService.loadFromBackendServer().then((backendData) => {
       if (backendData) {
-        if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
-          setAccounts(backendData.accounts);
-        }
+        let currentTxs = transactions;
         if (backendData.transactions && Array.isArray(backendData.transactions)) {
-          setTransactions((prev) => StorageService.mergeAndDeduplicateTransactions(prev, backendData.transactions));
+          currentTxs = StorageService.mergeAndDeduplicateTransactions(transactions, backendData.transactions);
+          setTransactions(currentTxs);
+          StorageService.saveTransactions(currentTxs);
+        }
+        if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
+          const computedAccs = StorageService.computeLiveAccountBalances(backendData.accounts, currentTxs);
+          setAccounts(computedAccs);
+          StorageService.saveAccounts(computedAccs);
         }
         if (backendData.logs && Array.isArray(backendData.logs)) {
           setLogs(backendData.logs);
@@ -252,10 +257,18 @@ function DashboardApp() {
       } else {
         // Fallback: Check backend server if GAS fails
         const backendData = await StorageService.loadFromBackendServer();
-        if (backendData && backendData.transactions) {
-          const merged = StorageService.mergeAndDeduplicateTransactions(transactions, backendData.transactions);
-          setTransactions(merged);
-          StorageService.saveTransactions(merged);
+        if (backendData) {
+          let merged = transactions;
+          if (backendData.transactions && Array.isArray(backendData.transactions)) {
+            merged = StorageService.mergeAndDeduplicateTransactions(transactions, backendData.transactions);
+            setTransactions(merged);
+            StorageService.saveTransactions(merged);
+          }
+          if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
+            const computedAccs = StorageService.computeLiveAccountBalances(backendData.accounts, merged);
+            setAccounts(computedAccs);
+            StorageService.saveAccounts(computedAccs);
+          }
         }
 
         if (showToast) {
@@ -968,6 +981,17 @@ function DashboardApp() {
         onClose={() => setIsSyncModalOpen(false)}
         onSyncComplete={() => handleManualSync(false)}
         onResetAllAmounts={handleResetAllAmounts}
+        onDataRestored={() => {
+          const freshAccs = StorageService.getAccounts();
+          const freshTxs = StorageService.getTransactions();
+          const computed = StorageService.computeLiveAccountBalances(freshAccs, freshTxs);
+          setTransactions(freshTxs);
+          setAccounts(computed);
+          const cats = StorageService.getCategories();
+          setIncomeCategories(cats.incomeTypes);
+          setExpenseCategories(cats.expenseTypes);
+          addToast('success', 'Data berjaya disegerakkan dan dikira semula!');
+        }}
       />
 
       {/* 8. Audit Logs Activity */}
