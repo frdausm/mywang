@@ -65,6 +65,12 @@ function DashboardApp() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedDetailAccount, setSelectedDetailAccount] = useState<Account | null>(null);
+
+  // Keep selected detail account dynamically synchronized with live accounts
+  const activeDetailAccount = useMemo(() => {
+    if (!selectedDetailAccount) return null;
+    return accounts.find((a) => a.id === selectedDetailAccount.id) || selectedDetailAccount;
+  }, [selectedDetailAccount, accounts]);
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [transferSourceAccount, setTransferSourceAccount] = useState<Account | null>(null);
@@ -604,7 +610,8 @@ function DashboardApp() {
       StorageService.saveAccounts(updatedAccounts);
     }
 
-    const updated = transactions.filter((t) => t.id !== id);
+    StorageService.recordDeletedTxId(id);
+    const updated = StorageService.filterDeletedTransactions(transactions.filter((t) => t.id !== id));
     setTransactions(updated);
     StorageService.saveTransactions(updated);
 
@@ -614,7 +621,8 @@ function DashboardApp() {
     }
     addToast('info', 'Transaksi berjaya dipadam.');
     StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updated }).catch(() => {});
-    StorageService.enqueueSync('deleteTransaction', { id });
+    StorageService.enqueueSync('deleteTransaction', { id, transaction_id: id });
+    StorageService.syncWithGAS('deleteTransaction', { id, transaction_id: id }).catch(() => {});
   };
 
   // 8. Save Categories (Income / Expense)
@@ -988,8 +996,8 @@ function DashboardApp() {
 
       {/* 11. Account Details 4-Tab Dashboard (Overview, History, Trend, Statement) */}
       <AccountDetailsModal
-        isOpen={!!selectedDetailAccount}
-        account={selectedDetailAccount}
+        isOpen={!!activeDetailAccount}
+        account={activeDetailAccount}
         transactions={transactions}
         accounts={accounts}
         onClose={() => setSelectedDetailAccount(null)}
