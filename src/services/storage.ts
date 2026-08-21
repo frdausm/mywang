@@ -958,42 +958,56 @@ export class StorageService {
 
       // If initial fetch / getInitialData / syncDashboard
       if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions' || action === 'get_accounts') {
-        let gasTxs: any[] = [];
+        let allGasTxs: any[] = [];
         let gasAccs: any[] = [];
 
-        // 1. Fetch transactions (support SakuTrack and MyWang endpoints)
-        try {
-          const resTx = await executeGasCall('get_transactions', { username: activeUsername });
-          if (resTx && resTx.status === 'success' && Array.isArray(resTx.transactions)) {
-            gasTxs = resTx.transactions;
-          }
-          if (resTx && Array.isArray(resTx.accounts) && resTx.accounts.length > 0) {
-            gasAccs = resTx.accounts;
-          }
-        } catch {}
+        const usernamesToTry = ['', activeUsername, 'user', 'admin', 'firdaus'].filter(
+          (v, i, a) => a.indexOf(v) === i
+        );
 
-        if (gasTxs.length === 0) {
+        // 1. Fetch transactions across all username scopes so no sheet row is missed
+        for (const u of usernamesToTry) {
           try {
-            const resDash = await executeGasCall('getDashboard', { token: activeUsername });
-            if (resDash && (resDash.status === 'success' || resDash.data)) {
-              gasTxs = resDash.data?.recentTransactions || resDash.data?.transactions || (Array.isArray(resDash.data) ? resDash.data : []) || [];
-              if (resDash.data?.accounts || resDash.accounts) {
-                gasAccs = resDash.data?.accounts || resDash.accounts || [];
+            const resTx = await executeGasCall('get_transactions', { username: u || undefined, all: true });
+            if (resTx && resTx.status === 'success') {
+              if (Array.isArray(resTx.transactions) && resTx.transactions.length > 0) {
+                allGasTxs.push(...resTx.transactions);
+              }
+              if (Array.isArray(resTx.accounts) && resTx.accounts.length > 0 && gasAccs.length === 0) {
+                gasAccs = resTx.accounts;
               }
             }
           } catch {}
         }
 
-        // 2. Fetch accounts (support SakuTrack 'get_accounts' and MyWang 'getAccounts')
-        if (gasAccs.length === 0) {
-          try {
-            const resAcc1 = await executeGasCall('get_accounts', { username: activeUsername });
-            if (resAcc1 && resAcc1.status === 'success' && Array.isArray(resAcc1.accounts)) {
-              gasAccs = resAcc1.accounts;
-            } else if (resAcc1 && Array.isArray(resAcc1.data)) {
-              gasAccs = resAcc1.data;
+        // Try getDashboard
+        try {
+          const resDash = await executeGasCall('getDashboard', { token: activeUsername, username: activeUsername });
+          if (resDash && (resDash.status === 'success' || resDash.data)) {
+            const dashTxs = resDash.data?.recentTransactions || resDash.data?.transactions || (Array.isArray(resDash.data) ? resDash.data : []);
+            if (Array.isArray(dashTxs) && dashTxs.length > 0) {
+              allGasTxs.push(...dashTxs);
             }
-          } catch {}
+            if ((resDash.data?.accounts || resDash.accounts) && gasAccs.length === 0) {
+              gasAccs = resDash.data?.accounts || resDash.accounts || [];
+            }
+          }
+        } catch {}
+
+        // 2. Fetch accounts if still empty
+        if (gasAccs.length === 0) {
+          for (const u of usernamesToTry) {
+            try {
+              const resAcc1 = await executeGasCall('get_accounts', { username: u || undefined });
+              if (resAcc1 && resAcc1.status === 'success' && Array.isArray(resAcc1.accounts) && resAcc1.accounts.length > 0) {
+                gasAccs = resAcc1.accounts;
+                break;
+              } else if (resAcc1 && Array.isArray(resAcc1.data) && resAcc1.data.length > 0) {
+                gasAccs = resAcc1.data;
+                break;
+              }
+            } catch {}
+          }
         }
 
         if (gasAccs.length === 0) {
@@ -1006,12 +1020,11 @@ export class StorageService {
         }
 
         // Normalize transactions and accounts
-        const normalizedTxs = this.normalizeRawTransactions(gasTxs);
+        const normalizedTxs = this.normalizeRawTransactions(allGasTxs);
         let normalizedAccs: Account[] = [];
 
         if (Array.isArray(gasAccs) && gasAccs.length > 0) {
           const rawParsedAccs = this.normalizeRawAccounts(gasAccs);
-          // Merge with current local accounts so user's existing balances (e.g. MIGA, ASNB, etc.) are never wiped
           const existingAccs = this.getAccounts();
           const mergedMap = new Map<string, Account>();
           existingAccs.forEach((a) => mergedMap.set(a.id, a));
@@ -1021,7 +1034,6 @@ export class StorageService {
               mergedMap.set(incoming.id, {
                 ...current,
                 ...incoming,
-                // Preserve user's latest local tracked balance unless local balance was 0 and incoming is set
                 balance: current.balance !== 0 ? current.balance : (incoming.balance !== undefined ? incoming.balance : current.balance),
                 weight_grams: incoming.weight_grams || current.weight_grams,
                 avg_price_per_gram: incoming.avg_price_per_gram || current.avg_price_per_gram,
@@ -1037,9 +1049,9 @@ export class StorageService {
           normalizedAccs = this.getAccounts();
         }
 
+        let combinedTxs = this.getTransactions();
         if (normalizedTxs.length > 0) {
-          const currentLocalTxs = this.getTransactions();
-          const combinedTxs = this.mergeAndDeduplicateTransactions(currentLocalTxs, normalizedTxs);
+          combinedTxs = this.mergeAndDeduplicateTransactions(combinedTxs, normalizedTxs);
           this.saveTransactions(combinedTxs);
         }
 
@@ -1050,10 +1062,10 @@ export class StorageService {
         return {
           success: true,
           data: {
-            transactions: normalizedTxs,
+            transactions: combinedTxs,
             accounts: normalizedAccs,
           },
-          message: `Diselaraskan ${normalizedAccs.length} akaun & ${normalizedTxs.length} transaksi dari Google Sheets!`,
+          message: `Diselaraskan ${normalizedAccs.length} akaun & ${combinedTxs.length} transaksi dari Google Sheets!`,
         };
       }
 
