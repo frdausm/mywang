@@ -557,26 +557,84 @@ export class StorageService {
   }
 
   /**
-   * Helper to check if custom Node.js backend API is available
+   * Helper to check if backend API is reachable
    */
   static isBackendServerAvailable(): boolean {
-    if (typeof window !== 'undefined') {
-      const host = window.location.hostname;
-      if (host.endsWith('vercel.app') || host.endsWith('github.io') || host.endsWith('pages.dev') || host.endsWith('netlify.app')) {
-        return false;
-      }
-    }
     return true;
+  }
+
+  /**
+   * Export all user data as a single portable JSON string (Cross-device sync)
+   */
+  static exportFullBackupJSON(): string {
+    const backup = {
+      accounts: this.getAccounts(),
+      transactions: this.getTransactions(),
+      loans: this.getLoans(),
+      categories: this.getCategories(),
+      gasConfig: this.getGoogleSheetsConfig(),
+      secretPasscode: this.getSecretPasscode(),
+      exported_at: new Date().toISOString(),
+      version: '2.0',
+    };
+    return JSON.stringify(backup, null, 2);
+  }
+
+  /**
+   * Import all user data from portable JSON string (Restores completely on mobile / PC)
+   */
+  static importFullBackupJSON(jsonStr: string): { success: boolean; message: string; count?: number } {
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, message: 'Format data JSON tidak sah.' };
+      }
+
+      let txCount = 0;
+      if (Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
+        const normAccs = this.normalizeAccounts(parsed.accounts);
+        this.saveAccounts(normAccs);
+      }
+
+      if (Array.isArray(parsed.transactions)) {
+        const cleanTxs = this.filterDeletedTransactions(parsed.transactions);
+        this.saveTransactions(cleanTxs);
+        txCount = cleanTxs.length;
+      }
+
+      if (Array.isArray(parsed.loans)) {
+        this.saveLoans(parsed.loans);
+      }
+
+      if (parsed.categories && parsed.categories.incomeTypes && parsed.categories.expenseTypes) {
+        this.saveCategories(parsed.categories.incomeTypes, parsed.categories.expenseTypes);
+      }
+
+      if (parsed.gasConfig && parsed.gasConfig.webAppUrl) {
+        this.saveGoogleSheetsConfig(parsed.gasConfig);
+      }
+
+      if (parsed.secretPasscode) {
+        this.saveSecretPasscode(parsed.secretPasscode);
+      }
+
+      // Also persist to backend server
+      this.saveToBackendServer(parsed).catch(() => {});
+
+      return {
+        success: true,
+        message: `Berjaya memulihkan data (${txCount} transaksi, ${parsed.accounts?.length || 0} akaun)!`,
+        count: txCount,
+      };
+    } catch (e: any) {
+      return { success: false, message: `Ralat memproses fail data: ${e?.message || 'Data rosak'}` };
+    }
   }
 
   /**
    * Server Backend Persistence (Saves data permanently on server so all devices stay synchronized)
    */
   static async saveToBackendServer(fullData: any = {}): Promise<boolean> {
-    if (!this.isBackendServerAvailable()) {
-      return true;
-    }
-
     try {
       const user = this.getUser();
       const accounts = fullData.accounts || this.getAccounts();
@@ -618,10 +676,6 @@ export class StorageService {
   }
 
   static async loadFromBackendServer(): Promise<any | null> {
-    if (!this.isBackendServerAvailable()) {
-      return null;
-    }
-
     try {
       const res = await fetch('/api/backend-data');
       if (!res.ok) return null;
@@ -633,12 +687,15 @@ export class StorageService {
       const json = await res.json();
       if (json && json.status === 'success' && json.data) {
         const data = json.data;
+        if (data.transactions && Array.isArray(data.transactions)) {
+          data.transactions = this.filterDeletedTransactions(data.transactions);
+          this.saveTransactions(data.transactions);
+        }
         if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
           data.accounts = this.normalizeAccounts(data.accounts);
-          this.saveAccounts(data.accounts);
-        }
-        if (data.transactions && Array.isArray(data.transactions)) {
-          this.saveTransactions(data.transactions);
+          const computedAccs = this.computeLiveAccountBalances(data.accounts, data.transactions || []);
+          data.accounts = computedAccs;
+          this.saveAccounts(computedAccs);
         }
         if (data.loans && Array.isArray(data.loans)) {
           this.saveLoans(data.loans);
