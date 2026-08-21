@@ -901,33 +901,94 @@ export class StorageService {
         return null;
       };
 
-      // Helper 2: Direct client-side fetch fallback
-      const fetchDirect = async (act: string, bodyObj: any = {}) => {
-        const postData = {
-          action: act,
-          username: activeUsername,
-          data: bodyObj,
-          ...bodyObj,
-        };
-        const res = await fetch(gasUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(postData),
+      // Helper 2: JSONP GET Fetch (Guaranteed 100% bypass of CORS on any PC browser)
+      const fetchViaJsonp = (act: string, params: any = {}): Promise<any> => {
+        return new Promise((resolve) => {
+          try {
+            const callbackName = 'gas_cb_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+            const script = document.createElement('script');
+            let timer: any = null;
+
+            (window as any)[callbackName] = (data: any) => {
+              cleanup();
+              resolve(data);
+            };
+
+            const cleanup = () => {
+              if (timer) clearTimeout(timer);
+              if (script.parentNode) script.parentNode.removeChild(script);
+              delete (window as any)[callbackName];
+            };
+
+            timer = setTimeout(() => {
+              cleanup();
+              resolve(null);
+            }, 10000);
+
+            script.onerror = () => {
+              cleanup();
+              resolve(null);
+            };
+
+            const queryObj: any = {
+              action: act,
+              username: activeUsername,
+              callback: callbackName,
+              ...params,
+            };
+            const queryString = Object.keys(queryObj)
+              .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(typeof queryObj[k] === 'object' ? JSON.stringify(queryObj[k]) : queryObj[k])}`)
+              .join('&');
+
+            const separator = gasUrl.includes('?') ? '&' : '?';
+            script.src = `${gasUrl}${separator}${queryString}`;
+            document.body.appendChild(script);
+          } catch {
+            resolve(null);
+          }
         });
-        const txt = await res.text();
+      };
+
+      // Helper 3: Direct client-side fetch fallback
+      const fetchDirect = async (act: string, bodyObj: any = {}) => {
         try {
-          return JSON.parse(txt);
+          const postData = {
+            action: act,
+            username: activeUsername,
+            data: bodyObj,
+            ...bodyObj,
+          };
+          const res = await fetch(gasUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(postData),
+          });
+          const txt = await res.text();
+          try {
+            return JSON.parse(txt);
+          } catch {
+            return { status: 'raw', text: txt };
+          }
         } catch {
-          return { status: 'raw', text: txt };
+          return null;
         }
       };
 
-      // Smart executor: Try proxy first (no CORS issues), fallback to direct
+      // Smart executor: Try Proxy -> Try JSONP (Zero CORS) -> Try Direct
       const executeGasCall = async (act: string, bodyObj: any = {}) => {
+        // 1. Try Vercel / Express Backend Proxy
         const proxyRes = await fetchViaProxy(act, bodyObj);
         if (proxyRes && (proxyRes.status === 'success' || proxyRes.data || proxyRes.transactions || proxyRes.accounts)) {
           return proxyRes;
         }
+
+        // 2. Try JSONP (Bypasses all PC browser CORS policies completely)
+        const jsonpRes = await fetchViaJsonp(act, bodyObj);
+        if (jsonpRes && (jsonpRes.status === 'success' || jsonpRes.data || jsonpRes.transactions || jsonpRes.accounts)) {
+          return jsonpRes;
+        }
+
+        // 3. Fallback direct POST
         return await fetchDirect(act, bodyObj);
       };
 
