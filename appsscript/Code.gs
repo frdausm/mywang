@@ -21,7 +21,11 @@ function getSpreadsheet() {
   return SpreadsheetApp.openById(SpreadsheetApp.getActiveSpreadsheet().getId());
 }
 
-function createJsonResponse(data) {
+function createJsonResponse(data, callback) {
+  if (callback) {
+    return ContentService.createTextOutput(callback + '(' + JSON.stringify(data) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -95,9 +99,9 @@ function doGet(e) {
         };
     }
 
-    return createJsonResponse(responseData);
+    return createJsonResponse(responseData, params.callback);
   } catch (error) {
-    return createJsonResponse({ status: 'error', message: error.toString() });
+    return createJsonResponse({ status: 'error', message: error.toString() }, params ? params.callback : null);
   }
 }
 
