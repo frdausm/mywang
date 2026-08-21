@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
-import { StorageService } from '../services/storage';
 
 interface AuthContextType {
   user: User | null;
@@ -13,6 +12,16 @@ interface AuthContextType {
 
 const CURRENT_USER_KEY = 'mywang_current_user';
 const SETTINGS_KEY = 'mywang_settings';
+
+function isBackendAvailable(): boolean {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host.endsWith('vercel.app') || host.endsWith('github.io') || host.endsWith('pages.dev') || host.endsWith('netlify.app')) {
+      return false;
+    }
+  }
+  return true;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -58,7 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let backendAuthSuccess = false;
       let authenticatedUser: User | null = null;
 
-      if (StorageService.isBackendServerAvailable()) {
+      if (isBackendAvailable()) {
         try {
           const res = await fetch('/api/auth/login', {
             method: 'POST',

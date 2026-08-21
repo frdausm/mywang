@@ -972,37 +972,15 @@ app.post("/api/gas-proxy", async (req, res) => {
       try {
         const txType = String(data.type || "expense").toLowerCase();
         const amt = Math.round((Math.abs(parseFloat(data.amount)) || 0) * 100) / 100;
-        const targetAccId = String(data.account_id || "").toLowerCase();
-        const targetAccName = String(data.account_name || "").toLowerCase();
         const txId = String(data.id || data.TxID || `TX_${Date.now()}`);
 
-        // Update server database accounts and transactions safely (prevent duplicates)
+        // Update server database transactions safely (prevent duplicates)
         const serverDb = readServerData();
         if (serverDb) {
           const currentTxs = Array.isArray(serverDb.transactions) ? serverDb.transactions : [];
           const existingIndex = currentTxs.findIndex((t: any) => t.id === txId);
 
           if (existingIndex === -1) {
-            // New transaction: unshift and update account balance
-            if (Array.isArray(serverDb.accounts)) {
-              serverDb.accounts = serverDb.accounts.map((acc: any) => {
-                const accId = String(acc.id || acc.AccountID || "").toLowerCase();
-                const accName = String(acc.account_name || acc.AccountName || "").toLowerCase();
-                const bankName = String(acc.bank || acc.Bank || "").toLowerCase();
-
-                if (
-                  accId === targetAccId ||
-                  (targetAccId && (accName.includes(targetAccId) || bankName.includes(targetAccId))) ||
-                  (targetAccName && (accName.includes(targetAccName) || bankName.includes(targetAccName)))
-                ) {
-                  const cur = Math.round((Number(acc.balance !== undefined ? acc.balance : acc.InitialBalance) || 0) * 100) / 100;
-                  const newBal = Math.round((txType === "income" ? cur + amt : cur - amt) * 100) / 100;
-                  return { ...acc, balance: newBal, InitialBalance: newBal };
-                }
-                return acc;
-              });
-            }
-
             serverDb.transactions = serverDeduplicateTransactions([
               {
                 id: txId,
@@ -1020,7 +998,7 @@ app.post("/api/gas-proxy", async (req, res) => {
             ]);
             saveServerData(serverDb);
           } else {
-            // Already exists: update in place without re-deducting balance
+            // Already exists: update in place
             currentTxs[existingIndex] = { ...currentTxs[existingIndex], ...data, id: txId };
             serverDb.transactions = serverDeduplicateTransactions(currentTxs);
             saveServerData(serverDb);

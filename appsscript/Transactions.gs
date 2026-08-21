@@ -23,6 +23,8 @@ function getTransactionsList(params) {
 
   var headers = data[0].map(function(h) { return String(h || '').trim(); });
   var transactions = [];
+  var seenIds = {};
+  var seenFp = {};
 
   var filterUser = params ? (params.username || params.token || '') : '';
   if (filterUser) filterUser = String(filterUser).trim().toLowerCase();
@@ -41,17 +43,26 @@ function getTransactionsList(params) {
       // Still include if general
     }
 
-    var txId = tx.TxID || tx.id || tx.txId || ('Tx_' + i);
+    var txId = String(tx.TxID || tx.id || tx.txId || ('Tx_' + i)).trim();
     var txType = String(tx.Type || tx.type || 'expense').toLowerCase();
-    var txDate = tx.Date || tx.date || '';
-    var txCategory = tx.Category || tx.category || 'Lain-lain';
-    var txMethod = tx.Method || tx.method || tx.payment_method || 'Online Transfer';
-    var txSource = tx.Source || tx.source || tx.account_name || tx.bank || 'Tunai';
+    var txDate = String(tx.Date || tx.date || '');
+    var txCategory = String(tx.Category || tx.category || 'Lain-lain');
+    var txMethod = String(tx.Method || tx.method || tx.payment_method || 'Online Transfer');
+    var txSource = String(tx.Source || tx.source || tx.account_name || tx.bank || 'Tunai');
     var txAmount = Number(tx.Amount !== undefined ? tx.Amount : (tx.amount !== undefined ? tx.amount : 0)) || 0;
     var txDiscount = Number(tx.Discount || tx.discount || 0) || 0;
-    var txNote = tx.Note || tx.note || '';
-    var txReceipt = tx.ReceiptURL || tx.receipt_url || tx.receipt || '';
-    var txCreated = tx.CreatedAt || tx.created_at || '';
+    var txNote = String(tx.Note || tx.note || '');
+    var txReceipt = String(tx.ReceiptURL || tx.receipt_url || tx.receipt || '');
+    var txCreated = String(tx.CreatedAt || tx.created_at || '');
+
+    var fp = (txDate.substring(0, 10)) + '|' + txType + '|' + txCategory + '|' + txAmount.toFixed(2) + '|' + txSource.toLowerCase() + '|' + txNote.toLowerCase();
+
+    // Prevent returning duplicate rows
+    if (seenIds[txId] || seenFp[fp]) {
+      continue;
+    }
+    seenIds[txId] = true;
+    seenFp[fp] = true;
 
     transactions.push({
       id: String(txId),
@@ -102,7 +113,7 @@ function handleAddTransaction(tx) {
     txSheet.getRange(1, 1, 1, 12).setBackground('#004D40').setFontColor('#FFFFFF').setFontWeight('bold');
   }
 
-  var txId = tx.TxID || tx.id || ('Tx_' + new Date().getTime());
+  var txId = String(tx.TxID || tx.id || ('Tx_' + new Date().getTime())).trim();
   var txUser = tx.Username || tx.username || 'user';
   var txType = String(tx.Type || tx.type || 'expense').toLowerCase();
   var txDate = tx.Date || tx.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'yyyy-MM-dd');
@@ -117,6 +128,38 @@ function handleAddTransaction(tx) {
 
   var data = txSheet.getDataRange().getValues();
   var headers = data[0].map(function(h) { return String(h || '').trim(); });
+  var idIdx = headers.indexOf('TxID');
+  if (idIdx === -1) idIdx = headers.indexOf('id');
+
+  // Check if this transaction already exists in the sheet to prevent duplicate entries
+  if (data.length > 1 && idIdx !== -1) {
+    for (var r = 1; r < data.length; r++) {
+      var existingId = String(data[r][idIdx] || '').trim();
+      if (existingId === txId) {
+        // Update the existing row instead of adding duplicate row
+        var rowNum = r + 1;
+        for (var h = 0; h < headers.length; h++) {
+          var hName = headers[h];
+          var val = tx[hName];
+          if (val === undefined) {
+            if (hName === 'TxID' || hName === 'id') val = txId;
+            else if (hName === 'Amount' || hName === 'amount') val = txAmount;
+            else if (hName === 'Type' || hName === 'type') val = txType;
+            else if (hName === 'Date' || hName === 'date') val = txDate;
+            else if (hName === 'Category' || hName === 'category') val = txCat;
+            else if (hName === 'Method' || hName === 'method' || hName === 'payment_method') val = txMethod;
+            else if (hName === 'Source' || hName === 'source' || hName === 'account_name' || hName === 'bank') val = txSource;
+            else if (hName === 'Note' || hName === 'note') val = txNote;
+            else if (hName === 'ReceiptURL' || hName === 'receipt_url' || hName === 'receipt') val = txReceipt || data[r][h];
+          }
+          if (val !== undefined) {
+            txSheet.getRange(rowNum, h + 1).setValue(val);
+          }
+        }
+        return { status: 'success', message: 'Transaksi sedia ada dikemaskini.', data: tx };
+      }
+    }
+  }
 
   var newRow = [];
   for (var k = 0; k < headers.length; k++) {
@@ -138,20 +181,20 @@ function handleAddTransaction(tx) {
 
   txSheet.appendRow(newRow);
 
-  // Update Account in Accounts sheet if present
+  // Update Account in Accounts sheet only once when appending
   if (accSheet) {
     var accData = accSheet.getDataRange().getValues();
     if (accData.length > 1) {
       var accHeaders = accData[0].map(function(h) { return String(h || '').trim(); });
-      var idIdx = accHeaders.indexOf('AccountID');
-      if (idIdx === -1) idIdx = accHeaders.indexOf('id');
+      var aIdIdx = accHeaders.indexOf('AccountID');
+      if (aIdIdx === -1) aIdIdx = accHeaders.indexOf('id');
       var nameIdx = accHeaders.indexOf('AccountName');
       if (nameIdx === -1) nameIdx = accHeaders.indexOf('account_name');
       var balIdx = accHeaders.indexOf('InitialBalance');
       if (balIdx === -1) balIdx = accHeaders.indexOf('balance');
 
       for (var a = 1; a < accData.length; a++) {
-        var existingAccId = String(accData[a][idIdx] || '').trim();
+        var existingAccId = String(accData[a][aIdIdx] || '').trim();
         var existingAccName = nameIdx !== -1 ? String(accData[a][nameIdx] || '').trim().toLowerCase() : '';
         var searchSource = String(txSource).trim().toLowerCase();
 
@@ -173,6 +216,41 @@ function handleAddTransaction(tx) {
   addAuditLog('ADD_TRANSACTION', 'Transaksi baru ' + txType.toUpperCase() + ' RM ' + txAmount + ' (' + txCat + ')', txUser);
 
   return { status: 'success', message: 'Transaksi berjaya direkodkan ke Google Sheets.', data: tx };
+}
+
+/**
+ * Deduplicates transactions in the Google Sheet (removes identical or duplicate TxID rows)
+ */
+function deduplicateSheetTransactions() {
+  var ss = getSpreadsheet();
+  var txSheet = getTransactionsSheet(ss);
+  if (!txSheet) return { status: 'error', message: 'Transactions sheet tidak ditemui' };
+
+  var data = txSheet.getDataRange().getValues();
+  if (data.length <= 2) return { status: 'success', message: 'Tiada data bertindan' };
+
+  var headers = data[0].map(function(h) { return String(h || '').trim(); });
+  var idIdx = headers.indexOf('TxID');
+  if (idIdx === -1) idIdx = headers.indexOf('id');
+
+  var seenIds = {};
+  var rowsToDelete = [];
+
+  for (var r = 1; r < data.length; r++) {
+    var id = idIdx !== -1 ? String(data[r][idIdx] || '').trim() : '';
+    if (id && seenIds[id]) {
+      rowsToDelete.push(r + 1);
+    } else if (id) {
+      seenIds[id] = true;
+    }
+  }
+
+  // Delete from bottom up
+  for (var d = rowsToDelete.length - 1; d >= 0; d--) {
+    txSheet.deleteRow(rowsToDelete[d]);
+  }
+
+  return { status: 'success', removedCount: rowsToDelete.length };
 }
 
 function handleTransferMoney(transferData) {
