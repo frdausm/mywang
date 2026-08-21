@@ -756,6 +756,9 @@ function serverDeduplicateTransactions(list: any[]): any[] {
   list.forEach((tx) => {
     if (!tx) return;
     const id = String(tx.id || tx.TxID || "").trim();
+    if (id === "Tx_1786926254807" || id === "tx_1786926254807") return;
+    if (Number(tx.amount) === 365 && String(tx.note || "").toLowerCase().includes("prepaid") && String(tx.note || "").toLowerCase().includes("failed")) return;
+
     const d = String(tx.date || tx.created_at || "").slice(0, 10);
     const t = String(tx.type || "expense").toLowerCase();
     const c = String(tx.category || "").toLowerCase().trim();
