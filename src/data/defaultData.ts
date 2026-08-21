@@ -99,7 +99,7 @@ export const INITIAL_ACCOUNTS: Account[] = [
   {
     id: 'acc_tng_goplus',
     bank: "Touch 'n Go eWallet",
-    account_name: "Touch 'n Go GO+",
+    account_name: "TnG go+",
     type: 'investment',
     balance: 0.00,
     color: 'from-sky-500 to-blue-700',
