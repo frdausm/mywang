@@ -14,10 +14,53 @@ const STORAGE_KEYS = {
   GAS_CONFIG: 'mywang_gas_config',
   DARK_MODE: 'mywang_dark_mode',
   ZEROED_FLAG: 'mywang_amounts_zeroed_v5',
-  PENDING_QUEUE: 'mywang_pending_sync_queue'
+  PENDING_QUEUE: 'mywang_pending_sync_queue',
+  DELETED_TX_IDS: 'mywang_deleted_tx_ids_v1'
 };
 
 export class StorageService {
+  /**
+   * Deleted Transactions Tombstone Management (Prevents deleted items from resurrecting)
+   */
+  static getDeletedTxIds(): Set<string> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.DELETED_TX_IDS);
+      const list = raw ? JSON.parse(raw) : [];
+      const s = new Set<string>(Array.isArray(list) ? list : []);
+      // Permanently include purged rogue duplicate transactions
+      s.add('Tx_1786926254807');
+      s.add('tx_1786926254807');
+      return s;
+    } catch {
+      return new Set(['Tx_1786926254807', 'tx_1786926254807']);
+    }
+  }
+
+  static recordDeletedTxId(id: string): void {
+    if (!id) return;
+    try {
+      const s = this.getDeletedTxIds();
+      s.add(id);
+      localStorage.setItem(STORAGE_KEYS.DELETED_TX_IDS, JSON.stringify(Array.from(s)));
+    } catch {}
+  }
+
+  static filterDeletedTransactions(txs: Transaction[]): Transaction[] {
+    const deletedIds = this.getDeletedTxIds();
+    return (txs || []).filter((tx) => {
+      if (!tx || !tx.id) return false;
+      if (deletedIds.has(tx.id)) return false;
+      if (tx.id === 'Tx_1786926254807' || tx.id === 'tx_1786926254807') return false;
+      if (
+        Number(tx.amount) === 365 &&
+        (tx.note || '').toLowerCase().includes('prepaid') &&
+        (tx.note || '').toLowerCase().includes('failed')
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
   /**
    * Normalize & Clean Accounts (No unwanted ghost injections)
    */
@@ -204,7 +247,12 @@ export class StorageService {
     if (!raw) return [];
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      const filtered = this.filterDeletedTransactions(parsed);
+      if (filtered.length !== parsed.length) {
+        this.saveTransactions(filtered);
+      }
+      return filtered;
     } catch {
       return [];
     }
@@ -212,7 +260,7 @@ export class StorageService {
 
   static saveTransactions(transactions: Transaction[]) {
     try {
-      const cleanTransactions = (transactions || []).map((tx) => ({
+      const cleanTransactions = this.filterDeletedTransactions(transactions || []).map((tx) => ({
         ...tx,
         amount: roundToTwoDecimals(tx.amount),
       }));
@@ -409,6 +457,8 @@ export class StorageService {
   static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
     const byIdMap = new Map<string, Transaction>();
     const fingerprintSet = new Set<string>();
+    const cleanLocal = this.filterDeletedTransactions(localList || []);
+    const cleanIncoming = this.filterDeletedTransactions(incomingList || []);
 
     const makeFingerprint = (tx: Partial<Transaction>): string => {
       const d = String(tx.date || tx.created_at || '').slice(0, 10);
@@ -421,7 +471,7 @@ export class StorageService {
     };
 
     // 1. Index and deduplicate local transactions
-    (localList || []).forEach((tx) => {
+    cleanLocal.forEach((tx) => {
       if (!tx) return;
       const cleanId = String(tx.id || '').trim();
       if (!cleanId) return;
@@ -434,7 +484,7 @@ export class StorageService {
     });
 
     // 2. Merge incoming transactions without creating duplicate rows
-    (incomingList || []).forEach((tx, idx) => {
+    cleanIncoming.forEach((tx, idx) => {
       if (!tx) return;
       const cleanId = String(tx.id || `tx_in_${Date.now()}_${idx}`).trim();
       const fp = makeFingerprint(tx);
