@@ -1202,7 +1202,7 @@ export class StorageService {
               mergedMap.set(incoming.id, {
                 ...current,
                 ...incoming,
-                balance: current.balance !== 0 ? current.balance : (incoming.balance !== undefined ? incoming.balance : current.balance),
+                balance: incoming.balance !== undefined && incoming.balance !== null ? incoming.balance : current.balance,
                 weight_grams: incoming.weight_grams || current.weight_grams,
                 avg_price_per_gram: incoming.avg_price_per_gram || current.avg_price_per_gram,
                 total_invested: incoming.total_invested || current.total_invested,
