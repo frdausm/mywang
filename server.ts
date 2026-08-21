@@ -843,65 +843,115 @@ app.post("/api/gas-proxy", async (req, res) => {
 
     // 1. Handle getInitialData / getDashboard / syncDashboard / get_transactions
     if (action === "getInitialData" || action === "getDashboard" || action === "syncDashboard" || action === "get_transactions" || action === "getTransactions") {
-      let result: any = null;
+      let allRawTxs: any[] = [];
+      let rawAccounts: any[] = [];
 
-      // Try 1: SakuTrack get_transactions
+      const usernamesToTry = ["", cleanUser, "user", "admin", "firdaus"].filter(
+        (v, i, a) => a.indexOf(v) === i
+      );
+
+      // Try fetching transactions with different parameters to guarantee all rows are collected
+      for (const u of usernamesToTry) {
+        try {
+          const sakuRes = await fetchGas("get_transactions", {
+            action: "get_transactions",
+            username: u || undefined,
+            all: true,
+          });
+          if (sakuRes && sakuRes.status === "success") {
+            if (Array.isArray(sakuRes.transactions) && sakuRes.transactions.length > 0) {
+              allRawTxs.push(...sakuRes.transactions);
+            }
+            if (Array.isArray(sakuRes.accounts) && sakuRes.accounts.length > 0 && rawAccounts.length === 0) {
+              rawAccounts = sakuRes.accounts;
+            }
+          }
+        } catch {}
+      }
+
+      // Try getDashboard
       try {
-        const sakuRes = await fetchGas("get_transactions", { action: "get_transactions", username: cleanUser });
-        if (sakuRes && sakuRes.status === "success" && Array.isArray(sakuRes.transactions)) {
-          result = sakuRes;
+        const dashRes = await fetchGas("getDashboard", {
+          action: "getDashboard",
+          username: cleanUser,
+          token: cleanUser,
+        });
+        if (dashRes) {
+          const dashTxs = dashRes.transactions || dashRes.data?.transactions || dashRes.data?.recentTransactions;
+          if (Array.isArray(dashTxs) && dashTxs.length > 0) {
+            allRawTxs.push(...dashTxs);
+          }
+          if (Array.isArray(dashRes.accounts) && dashRes.accounts.length > 0 && rawAccounts.length === 0) {
+            rawAccounts = dashRes.accounts;
+          } else if (Array.isArray(dashRes.data?.accounts) && dashRes.data.accounts.length > 0 && rawAccounts.length === 0) {
+            rawAccounts = dashRes.data.accounts;
+          }
         }
       } catch {}
 
-      // Try 2: getDashboard
-      if (!result) {
+      // Try get_accounts if still empty
+      if (rawAccounts.length === 0) {
+        for (const u of usernamesToTry) {
+          try {
+            const accRes = await fetchGas("get_accounts", { action: "get_accounts", username: u || undefined });
+            if (accRes && Array.isArray(accRes.accounts) && accRes.accounts.length > 0) {
+              rawAccounts = accRes.accounts;
+              break;
+            } else if (accRes && Array.isArray(accRes.data) && accRes.data.length > 0) {
+              rawAccounts = accRes.data;
+              break;
+            }
+          } catch {}
+        }
+      }
+
+      // Direct pass-through if nothing found
+      if (allRawTxs.length === 0) {
         try {
-          const dashRes = await fetchGas("getDashboard", { action: "getDashboard", username: cleanUser, token: cleanUser });
-          if (dashRes && (dashRes.status === "success" || dashRes.transactions || dashRes.accounts)) {
-            result = dashRes;
+          const directRes = await fetchGas(action);
+          if (directRes) {
+            const dTxs = directRes.transactions || directRes.data?.transactions || (Array.isArray(directRes.data) ? directRes.data : []);
+            if (Array.isArray(dTxs)) allRawTxs.push(...dTxs);
+            if (Array.isArray(directRes.accounts)) rawAccounts = directRes.accounts;
           }
         } catch {}
       }
 
-      // Try 3: getTransactions
-      if (!result) {
-        try {
-          const txRes = await fetchGas("getTransactions", { action: "getTransactions", username: cleanUser });
-          if (txRes && (txRes.status === "success" || Array.isArray(txRes.data) || Array.isArray(txRes.transactions))) {
-            result = txRes;
+      if (allRawTxs.length > 0 || rawAccounts.length > 0) {
+        // Deduplicate raw transactions by ID/TxID/content
+        const seenTxIds = new Set<string>();
+        const uniqueRawTxs: any[] = [];
+        allRawTxs.forEach((tx) => {
+          if (!tx) return;
+          const tid = String(tx.id || tx.TxID || `${tx.date}_${tx.amount}_${tx.category}_${tx.note}`);
+          if (!seenTxIds.has(tid)) {
+            seenTxIds.add(tid);
+            uniqueRawTxs.push(tx);
           }
-        } catch {}
-      }
+        });
 
-      // Try 4: Direct pass-through
-      if (!result) {
-        try {
-          result = await fetchGas(action);
-        } catch {}
-      }
-
-      if (result) {
-        const rawTxs = result.transactions || result.data?.transactions || (Array.isArray(result.data) ? result.data : []) || [];
-        const mappedTransactions = Array.isArray(rawTxs) ? rawTxs.map((tx: any) => ({
-          id: String(tx.id || `TX_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
-          date: parseSakuTrackDate(tx.date),
-          type: tx.type === "income" ? "income" : "expense",
-          category: tx.category || "Lain-lain",
-          amount: parseFloat(tx.amount) || 0,
-          account_id: tx.account_id || mapSourceToAccountId(tx.source || tx.method || tx.account_name),
-          account_name: tx.account_name || tx.source || tx.method || "Maybank",
+        const mappedTransactions = uniqueRawTxs.map((tx: any) => ({
+          id: String(tx.id || tx.TxID || `TX_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
+          date: parseSakuTrackDate(tx.date || tx.created_at),
+          type: String(tx.type || "expense").toLowerCase() === "income" ? "income" : tx.type === "transfer" ? "transfer" : "expense",
+          category: tx.category || tx.income_type || tx.expense_type || "Lain-lain",
+          amount: Math.round((Math.abs(parseFloat(tx.amount)) || 0) * 100) / 100,
+          account_id: tx.account_id || mapSourceToAccountId(tx.source || tx.method || tx.account_name || tx.account),
+          account_name: tx.account_name || tx.source || tx.method || tx.account || "Maybank",
           note: tx.note || "",
           receipt_url: tx.receipt || tx.receipt_url || undefined,
-          created_at: String(tx.date || new Date().toISOString()),
-        })) : [];
+          created_at: String(tx.created_at || tx.date || new Date().toISOString()),
+        }));
 
-        const rawAccounts = result.accounts || result.data?.accounts || [];
         const accountsData = Array.isArray(rawAccounts) && rawAccounts.length > 0 ? rawAccounts : undefined;
 
-        // Auto backup into server data file safely (preserve full account structure)
+        // Auto backup into server data file safely
         const currentDb = readServerData() || {};
         if (mappedTransactions.length > 0) {
-          currentDb.transactions = mappedTransactions;
+          currentDb.transactions = serverDeduplicateTransactions([
+            ...(Array.isArray(currentDb.transactions) ? currentDb.transactions : []),
+            ...mappedTransactions,
+          ]);
         }
         if (accountsData && accountsData.length > 0) {
           const currentAccounts = Array.isArray(currentDb.accounts) ? currentDb.accounts : [];
@@ -922,7 +972,7 @@ app.post("/api/gas-proxy", async (req, res) => {
 
         return res.json({
           status: "success",
-          source: result.source || "google_apps_script",
+          source: "google_apps_script",
           message: `Berjaya diselaraskan dengan ${mappedTransactions.length} rekod dari Google Sheets!`,
           data: {
             transactions: mappedTransactions,
