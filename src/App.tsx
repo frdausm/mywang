@@ -150,44 +150,13 @@ function DashboardApp() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // 1. Initial multi-device backend restore (if backend available)
-    StorageService.loadFromBackendServer().then((backendData) => {
-      if (backendData) {
-        let currentTxs = transactions;
-        if (backendData.transactions && Array.isArray(backendData.transactions)) {
-          currentTxs = StorageService.mergeAndDeduplicateTransactions(transactions, backendData.transactions);
-          setTransactions(currentTxs);
-          StorageService.saveTransactions(currentTxs);
-        }
-        if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
-          const computedAccs = StorageService.computeLiveAccountBalances(backendData.accounts, currentTxs);
-          setAccounts(computedAccs);
-          StorageService.saveAccounts(computedAccs);
-        }
-        if (backendData.logs && Array.isArray(backendData.logs)) {
-          setLogs(backendData.logs);
-        }
-        if (backendData.incomeTypes && Array.isArray(backendData.incomeTypes)) {
-          setIncomeCategories(backendData.incomeTypes);
-        }
-        if (backendData.expenseTypes && Array.isArray(backendData.expenseTypes)) {
-          setExpenseCategories(backendData.expenseTypes);
-        }
-      }
+    // 1. Google Sheets sync if URL configured
+    const config = StorageService.getGoogleSheetsConfig();
+    if (config.webAppUrl && config.autoSync) {
+      handleManualSync(false);
+    }
 
-      // 2. Google Sheets sync if URL configured
-      const config = StorageService.getGoogleSheetsConfig();
-      if (config.webAppUrl && config.autoSync) {
-        handleManualSync(false);
-      }
-    }).catch(() => {
-      const config = StorageService.getGoogleSheetsConfig();
-      if (config.webAppUrl && config.autoSync) {
-        handleManualSync(false);
-      }
-    });
-
-    // 3. Periodic real-time sync (every 30 seconds) & window focus sync
+    // 2. Periodic sync (every 60 seconds) & window focus sync
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         const curConfig = StorageService.getGoogleSheetsConfig();
@@ -197,7 +166,7 @@ function DashboardApp() {
         // Flush any pending queue
         StorageService.flushPendingQueue().catch(() => {});
       }
-    }, 30000);
+    }, 60000);
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -245,32 +214,8 @@ function DashboardApp() {
         setAccounts(syncedAccounts);
         StorageService.saveAccounts(syncedAccounts);
 
-        // Persist full bundle to backend server asynchronously if available
-        StorageService.saveToBackendServer({
-          accounts: syncedAccounts,
-          transactions: mergedTransactions,
-          loans: StorageService.getLoans(),
-          logs,
-        }).catch(() => {});
-
         if (showToast) addToast('success', gasRes.message || 'Penyegerakan Google Sheets berjaya!');
       } else {
-        // Fallback: Check backend server if GAS fails
-        const backendData = await StorageService.loadFromBackendServer();
-        if (backendData) {
-          let merged = transactions;
-          if (backendData.transactions && Array.isArray(backendData.transactions)) {
-            merged = StorageService.mergeAndDeduplicateTransactions(transactions, backendData.transactions);
-            setTransactions(merged);
-            StorageService.saveTransactions(merged);
-          }
-          if (backendData.accounts && Array.isArray(backendData.accounts) && backendData.accounts.length > 0) {
-            const computedAccs = StorageService.computeLiveAccountBalances(backendData.accounts, merged);
-            setAccounts(computedAccs);
-            StorageService.saveAccounts(computedAccs);
-          }
-        }
-
         if (showToast) {
           if (gasRes.message?.includes('belum ditetapkan')) {
             addToast('info', 'Sila masukkan URL Google Apps Script dalam Tetapan.');
@@ -309,9 +254,6 @@ function DashboardApp() {
     } else {
       addToast('info', `Baki ${updated.account_name} disimpan di peranti.`);
     }
-
-    // Persist full state to backend server
-    StorageService.saveToBackendServer({ accounts: newAccounts }).catch(() => {});
   };
 
   // 2. Add New Account
@@ -330,8 +272,6 @@ function DashboardApp() {
     } else {
       addToast('info', `Akaun ${newAcc.account_name} disimpan di peranti.`);
     }
-
-    StorageService.saveToBackendServer({ accounts: newAccounts }).catch(() => {});
   };
 
   // 3. Delete Account
@@ -352,8 +292,6 @@ function DashboardApp() {
     } else {
       addToast('info', 'Akaun dipadam dari peranti.');
     }
-
-    StorageService.saveToBackendServer({ accounts: newAccounts }).catch(() => {});
   };
 
   // 4. Dual-Entry Transfer
@@ -410,7 +348,6 @@ function DashboardApp() {
     setLogs(newLogs);
 
     addToast('success', `Pindahan RM ${transferAmt.toFixed(2)} berjaya!`);
-    StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedTxList }).catch(() => {});
     
     const fullTransferPayload = {
       ...transferData,
@@ -465,8 +402,7 @@ function DashboardApp() {
 
     addToast('success', `Transaksi ${txData.category} RM ${txAmount.toFixed(2)} disimpan.`);
 
-    // Dual-save: Server Backend + GAS queue (Non-blocking)
-    StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
+    // Enqueue to GAS
     StorageService.enqueueSync('addTransaction', newTx);
   };
 
@@ -503,7 +439,6 @@ function DashboardApp() {
     const newLogs = StorageService.addLog('LOAN_PAYMENT', `Bayaran pinjaman direkod: RM ${installmentAmt.toFixed(2)} untuk ${loan.name}`, user?.username);
     setLogs(newLogs);
     addToast('success', `Bayaran ansuran ${loan.name} RM ${installmentAmt.toFixed(2)} berjaya direkod!`);
-    StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
     StorageService.enqueueSync('addTransaction', newTx);
   };
 
@@ -511,7 +446,6 @@ function DashboardApp() {
   const handleReorderAccounts = (reorderedList: Account[]) => {
     setAccounts(reorderedList);
     StorageService.saveAccounts(reorderedList);
-    StorageService.saveToBackendServer({ accounts: reorderedList, transactions }).catch(() => {});
   };
 
   // 6. Update / Edit Transaction (From Pencil Edit)
@@ -585,7 +519,6 @@ function DashboardApp() {
     setLogs(newLogs);
 
     addToast('success', `Transaksi ${cleanUpdatedTx.category} berjaya dikemaskini.`);
-    StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updatedList }).catch(() => {});
     StorageService.enqueueSync('updateTransaction', cleanUpdatedTx);
   };
 
@@ -633,7 +566,6 @@ function DashboardApp() {
       setLogs(newLogs);
     }
     addToast('info', 'Transaksi berjaya dipadam.');
-    StorageService.saveToBackendServer({ accounts: updatedAccounts, transactions: updated }).catch(() => {});
     StorageService.enqueueSync('deleteTransaction', { id, transaction_id: id });
     StorageService.syncWithGAS('deleteTransaction', { id, transaction_id: id }).catch(() => {});
   };
