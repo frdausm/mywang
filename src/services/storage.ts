@@ -197,8 +197,6 @@ export class StorageService {
         credit_limit: acc.credit_limit !== undefined ? roundToTwoDecimals(acc.credit_limit) : undefined,
       }));
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(cleanAccounts));
-      // Auto persist immediately to backend server
-      this.saveToBackendServer({ accounts: cleanAccounts }).catch(() => {});
     } catch (e) {}
   }
 
@@ -222,7 +220,6 @@ export class StorageService {
   static saveLoans(loans: LoanFinancing[]) {
     try {
       localStorage.setItem(STORAGE_KEYS.LOANS, JSON.stringify(loans));
-      this.saveToBackendServer({ loans }).catch(() => {});
     } catch (e) {}
   }
 
@@ -265,7 +262,6 @@ export class StorageService {
         amount: roundToTwoDecimals(tx.amount),
       }));
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cleanTransactions));
-      this.saveToBackendServer({ transactions: cleanTransactions }).catch(() => {});
     } catch (e) {}
   }
 
@@ -311,7 +307,6 @@ export class StorageService {
     try {
       localStorage.setItem(STORAGE_KEYS.INCOME_TYPES, JSON.stringify(incomeTypes));
       localStorage.setItem(STORAGE_KEYS.EXPENSE_TYPES, JSON.stringify(expenseTypes));
-      this.saveToBackendServer({ incomeTypes, expenseTypes }).catch(() => {});
     } catch (e) {}
   }
 
@@ -618,9 +613,7 @@ export class StorageService {
         this.saveSecretPasscode(parsed.secretPasscode);
       }
 
-      // Also persist to backend server
-      this.saveToBackendServer(parsed).catch(() => {});
-
+      // Return success directly
       return {
         success: true,
         message: `Berjaya memulihkan data (${txCount} transaksi, ${parsed.accounts?.length || 0} akaun)!`,
@@ -632,92 +625,16 @@ export class StorageService {
   }
 
   /**
-   * Server Backend Persistence (Saves data permanently on server so all devices stay synchronized)
+   * Server Backend Persistence (Throttled & Non-blocking)
    */
-  static async saveToBackendServer(fullData: any = {}): Promise<boolean> {
-    try {
-      const user = this.getUser();
-      const accounts = fullData.accounts || this.getAccounts();
-      const transactions = fullData.transactions || this.getTransactions();
-      const loans = fullData.loans || this.getLoans();
-      const categories = this.getCategories();
-      const logs = fullData.logs || this.getLogs();
-      const gasConfig = fullData.gasConfig || this.getGoogleSheetsConfig();
-      const secretPasscode = this.getSecretPasscode();
-
-      const payload = {
-        username: user?.username || 'admin',
-        accounts,
-        transactions,
-        loans,
-        incomeTypes: categories.incomeTypes,
-        expenseTypes: categories.expenseTypes,
-        logs,
-        gasConfig,
-        secretPasscode,
-        saved_at: new Date().toISOString(),
-      };
-
-      const res = await fetch('/api/backend-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) return false;
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) return false;
-
-      const data = await res.json();
-      return !!(data && data.status === 'success');
-    } catch {
-      return false;
-    }
+  static async saveToBackendServer(_fullData: any = {}): Promise<boolean> {
+    // Disabled high-frequency origin transfer to prevent Vercel bandwidth limits
+    return true;
   }
 
   static async loadFromBackendServer(): Promise<any | null> {
-    try {
-      const res = await fetch('/api/backend-data');
-      if (!res.ok) return null;
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        return null;
-      }
-
-      const json = await res.json();
-      if (json && json.status === 'success' && json.data) {
-        const data = json.data;
-        if (data.transactions && Array.isArray(data.transactions)) {
-          data.transactions = this.filterDeletedTransactions(data.transactions);
-          this.saveTransactions(data.transactions);
-        }
-        if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
-          data.accounts = this.normalizeAccounts(data.accounts);
-          const computedAccs = this.computeLiveAccountBalances(data.accounts, data.transactions || []);
-          data.accounts = computedAccs;
-          this.saveAccounts(computedAccs);
-        }
-        if (data.loans && Array.isArray(data.loans)) {
-          this.saveLoans(data.loans);
-        }
-        if (data.incomeTypes && data.expenseTypes) {
-          this.saveCategories(data.incomeTypes, data.expenseTypes);
-        }
-        if (data.gasConfig && data.gasConfig.webAppUrl) {
-          this.saveGoogleSheetsConfig(data.gasConfig);
-        }
-        if (data.secretPasscode) {
-          this.saveSecretPasscode(data.secretPasscode);
-        }
-        if (data.logs && Array.isArray(data.logs)) {
-          this.saveLogs(data.logs);
-        }
-        return data;
-      }
-      return null;
-    } catch {
-      return null;
-    }
+    // Rely on local storage & direct Google Sheets sync
+    return null;
   }
 
   /**
