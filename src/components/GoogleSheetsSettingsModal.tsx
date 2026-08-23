@@ -147,35 +147,24 @@ export const GoogleSheetsSettingsModal: React.FC<GoogleSheetsSettingsModalProps>
     reader.readAsText(file);
   };
 
-  // Force Pull from Server Backend
+  // Force Pull from Google Sheets Cloud
   const handleForcePullCloud = async () => {
     setIsPullingCloud(true);
     setSyncStatusMsg(null);
     try {
-      const data = await StorageService.loadFromBackendServer();
-      if (data) {
+      const gasRes = await StorageService.syncWithGAS('getInitialData');
+      if (gasRes.success && gasRes.data) {
         setSyncStatusMsg({
           success: true,
-          message: `Data terkini berjaya dimuat turun daripada pelayan awan! (${data.transactions?.length || 0} transaksi, ${data.accounts?.length || 0} akaun)`
+          message: 'Data berjaya disegerakkan terus daripada Google Sheets!'
         });
         if (onDataRestored) onDataRestored();
         if (onSyncComplete) onSyncComplete();
       } else {
-        // Try fallback GAS
-        const gasRes = await StorageService.syncWithGAS('getInitialData');
-        if (gasRes.success && gasRes.data) {
-          setSyncStatusMsg({
-            success: true,
-            message: 'Data berjaya disegerakkan terus daripada Google Sheets!'
-          });
-          if (onDataRestored) onDataRestored();
-          if (onSyncComplete) onSyncComplete();
-        } else {
-          setSyncStatusMsg({
-            success: false,
-            message: 'Tiada rekod data awan ditemui atau sambungan pelayan luar talian.'
-          });
-        }
+        setSyncStatusMsg({
+          success: false,
+          message: gasRes.message || 'Tiada rekod data ditemui atau sambungan luar talian.'
+        });
       }
     } catch (e: any) {
       setSyncStatusMsg({ success: false, message: `Ralat penyegerakan: ${e?.message || 'Tidak dapat dihubungi'}` });
