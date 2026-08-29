@@ -1,8 +1,41 @@
 {
   "test": true,
-  "saved_at": "2026-08-21T00:50:52.281Z",
-  "last_saved_at": "2026-08-21T00:50:55.370Z",
+  "saved_at": "2026-08-21T22:39:45.302Z",
+  "last_saved_at": "2026-08-21T22:39:47.306Z",
   "transactions": [
+    {
+      "id": "tx_1787349501308",
+      "date": "2026-08-22",
+      "type": "income",
+      "category": "Lain-lain",
+      "amount": 600,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "Tng pin by zcity",
+      "created_at": "2026-08-22T05:58:22.764Z"
+    },
+    {
+      "id": "tx_1787349465068",
+      "date": "2026-08-22",
+      "type": "expense",
+      "category": "Lain-lain",
+      "amount": 597,
+      "account_id": "RHB Bank - RHB Credit Card Islamic Cashback",
+      "account_name": "RHB Bank - RHB Credit Card Islamic Cashback",
+      "note": "Tng pin by zcity",
+      "created_at": "2026-08-22T05:57:47.203Z"
+    },
+    {
+      "id": "tx_1787351024758",
+      "date": "2026-08-22",
+      "type": "income",
+      "category": "Bonus",
+      "amount": 0.15,
+      "account_id": "TNG GO+ (Pelaburan)",
+      "account_name": "TNG GO+ (Pelaburan)",
+      "note": "pendapatan harian go+",
+      "created_at": "2026-08-22T06:23:46.093Z"
+    },
     {
       "id": "tx_1787272899788",
       "date": "2026-08-21",
@@ -24,6 +57,72 @@
       "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
       "note": "pendapatan harian go+",
       "created_at": "2026-08-21T08:39:34.419Z"
+    },
+    {
+      "id": "Tx_1787275011375",
+      "date": "2026-08-21",
+      "type": "income",
+      "category": "Pindahan Masuk",
+      "amount": 365,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet GO+",
+      "note": "topap go+",
+      "created_at": "2026-08-21T09:16:51.375Z"
+    },
+    {
+      "id": "Tx_1787275010219",
+      "date": "2026-08-21",
+      "type": "expense",
+      "category": "Pindahan Keluar",
+      "amount": 365,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "topap go+",
+      "created_at": "2026-08-21T09:16:50.219Z"
+    },
+    {
+      "id": "tx_1787299912916",
+      "date": "2026-08-21",
+      "type": "income",
+      "category": "Lain-lain",
+      "amount": 10.5,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "Topap PIN",
+      "created_at": "2026-08-21T16:11:53.950Z"
+    },
+    {
+      "id": "Tx_1787294078921",
+      "date": "2026-08-21",
+      "type": "income",
+      "category": "Pindahan Masuk",
+      "amount": 16.54,
+      "account_id": "Atome - Atome Card",
+      "account_name": "Atome - Atome Card",
+      "note": "bayar atome bulan ogos",
+      "created_at": "2026-08-21T14:34:38.921Z"
+    },
+    {
+      "id": "Tx_1787294077873",
+      "date": "2026-08-21",
+      "type": "expense",
+      "category": "Pindahan Keluar",
+      "amount": 16.54,
+      "account_id": "RHB Bank - RHB Credit Card Islamic Cashback",
+      "account_name": "RHB Bank - RHB Credit Card Islamic Cashback",
+      "note": "bayar atome bulan ogos",
+      "created_at": "2026-08-21T14:34:37.873Z"
+    },
+    {
+      "id": "tx_1787292571753",
+      "date": "2026-08-21",
+      "type": "expense",
+      "category": "Makanan & Minuman",
+      "amount": 4.1,
+      "account_id": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "account_name": "Touch 'n Go eWallet - Touch 'n Go eWallet",
+      "note": "Ais batu 7e",
+      "created_at": "2026-08-21T14:09:33.325Z"
     },
     {
       "id": "tx_1787272749201",
@@ -985,7 +1084,7 @@
       "created_at": "2026-07-25T00:51:30.851Z"
     }
   ],
-  "last_gas_synced": "2026-08-21T00:50:59.244Z",
+  "last_gas_synced": "2026-08-21T22:40:06.204Z",
   "username": "admin",
   "accounts": [
     {
@@ -1058,7 +1157,7 @@
       "bank": "Touch 'n Go eWallet",
       "account_name": "Touch 'n Go eWallet",
       "type": "ewallet",
-      "balance": 1016.2,
+      "balance": 1257.6,
       "color": "from-blue-500 to-sky-600",
       "icon": "Smartphone",
       "notes": "Tol & Belanja Harian",
@@ -1071,7 +1170,7 @@
       "AccountName": "Touch 'n Go eWallet",
       "name": "Touch 'n Go eWallet",
       "AccountType": "ewallet",
-      "InitialBalance": 1016.2,
+      "InitialBalance": 1257.6,
       "Notes": "Tol & Belanja Harian",
       "account_number": "",
       "AccountNumber": "",
@@ -1105,10 +1204,10 @@
     },
     {
       "id": "acc_1786841487737",
-      "bank": "Touch 'n Go eWallet GO+",
-      "account_name": "Touch 'n Go eWallet GO+",
+      "bank": "Touch 'n Go eWallet",
+      "account_name": "TNG GO+ (Pelaburan)",
       "type": "ewallet",
-      "balance": 1523.02,
+      "balance": 1888.56,
       "color": "from-blue-500 to-sky-600",
       "icon": "Smartphone",
       "notes": "",
@@ -1117,11 +1216,11 @@
       "account_id": "acc_1786841487737",
       "Username": "user",
       "username": "user",
-      "Bank": "Touch 'n Go eWallet GO+",
-      "AccountName": "Touch 'n Go eWallet GO+",
-      "name": "Touch 'n Go eWallet GO+",
+      "Bank": "Touch 'n Go eWallet",
+      "AccountName": "TNG GO+ (Pelaburan)",
+      "name": "TNG GO+ (Pelaburan)",
       "AccountType": "ewallet",
-      "InitialBalance": 1523.02,
+      "InitialBalance": 1888.56,
       "Notes": "",
       "account_number": "",
       "AccountNumber": "",
@@ -1133,7 +1232,7 @@
       "bank": "RHB Credit Card Islamic Cashback",
       "account_name": "RHB Credit Card Islamic Cashback",
       "type": "credit_card",
-      "balance": -1595.2500000000002,
+      "balance": -2208.79,
       "color": "from-blue-600 to-cyan-700",
       "icon": "CreditCard",
       "notes": "Cashback petrol, groceries & dining",
@@ -1147,7 +1246,7 @@
       "AccountName": "RHB Credit Card Islamic Cashback",
       "name": "RHB Credit Card Islamic Cashback",
       "AccountType": "credit_card",
-      "InitialBalance": -1595.2500000000002,
+      "InitialBalance": -2208.79,
       "Notes": "Cashback petrol, groceries & dining",
       "account_number": "",
       "AccountNumber": "",
@@ -1235,7 +1334,7 @@
       "bank": "Atome Card",
       "account_name": "Atome Card",
       "type": "credit_card",
-      "balance": -16.54,
+      "balance": 0,
       "color": "from-lime-500 to-yellow-600",
       "icon": "Clock",
       "notes": "Kad fizikal Mastercard Atome",
@@ -1248,7 +1347,7 @@
       "AccountName": "Atome Card",
       "name": "Atome Card",
       "AccountType": "credit_card",
-      "InitialBalance": -16.54,
+      "InitialBalance": 0,
       "Notes": "Kad fizikal Mastercard Atome",
       "account_number": "",
       "AccountNumber": "",
@@ -1392,6 +1491,31 @@
       "icon": "Coins",
       "notes": "Firdaus Bin Mohd Pauzi - ASN (000007814094)",
       "updated_at": "2026-08-17"
+    },
+    {
+      "id": "acc_1787276402044",
+      "AccountID": "acc_1787276402044",
+      "account_id": "acc_1787276402044",
+      "Username": "user",
+      "username": "user",
+      "bank": "RHB SAVINGS ACC",
+      "Bank": "RHB SAVINGS ACC",
+      "account_name": "RHB SAVINGS ACC",
+      "AccountName": "RHB SAVINGS ACC",
+      "name": "RHB SAVINGS ACC",
+      "type": "bank",
+      "AccountType": "bank",
+      "balance": 40.24,
+      "InitialBalance": 40.24,
+      "notes": "ACC GAJI",
+      "Notes": "ACC GAJI",
+      "account_number": "",
+      "AccountNumber": "",
+      "created_at": "2026-08-21T09:40:04.260Z",
+      "CreatedAt": "2026-08-21T09:40:04.260Z",
+      "updated_at": "2026-08-21T09:40:04.260Z",
+      "color": "from-blue-600 to-cyan-700",
+      "icon": "Landmark"
     }
   ],
   "loans": [
@@ -1610,7 +1734,7 @@
     "webAppUrl": "https://script.google.com/macros/s/AKfycbx7jSb1NjRkNhEouyJMwRyfWiF98lAAdwsvpCAcDF_MoiNdxQWFtEzO8ncoGyPEJF31/exec",
     "autoSync": true,
     "isConnected": true,
-    "lastSynced": "08:50"
+    "lastSynced": "06:39"
   },
   "secretPasscode": "7445"
 }

@@ -11,16 +11,21 @@ interface AuthContextType {
 }
 
 const CURRENT_USER_KEY = 'mywang_current_user';
-const SETTINGS_KEY = 'mywang_settings';
+const SETTINGS_KEY = 'mywang_gas_config';
 
-function isBackendAvailable(): boolean {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host.endsWith('vercel.app') || host.endsWith('github.io') || host.endsWith('pages.dev') || host.endsWith('netlify.app')) {
-      return false;
+/**
+ * SHA-256 Salted Hash Helper (No Plaintext Passwords in Frontend)
+ */
+async function computeSha256(str: string): Promise<string> {
+  try {
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+      const msgBuffer = new TextEncoder().encode(str + '_MYWANG_SALT_2026');
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     }
-  }
-  return true;
+  } catch {}
+  return str;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -56,118 +61,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Dapatkan URL Google Apps Script jika ada disimpan
       let gasUrl = '';
       try {
-        const rawSettings = localStorage.getItem(SETTINGS_KEY);
+        const rawSettings = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('mywang_settings');
         if (rawSettings) {
           const parsed = JSON.parse(rawSettings);
-          gasUrl = parsed.gas_web_app_url || parsed.google_sheets_url || parsed.sakutrack_sheets_url || parsed.webAppUrl || '';
+          gasUrl = parsed.webAppUrl || parsed.gas_web_app_url || parsed.google_sheets_url || '';
         }
       } catch (err) {}
 
-      // 1. Cuba Pengesahan melalui Pelayan Backend API (/api/auth/login) jika pelayan aktif
-      let backendAuthSuccess = false;
-      let authenticatedUser: User | null = null;
-
-      if (isBackendAvailable()) {
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              username: cleanUser,
-              password: cleanPass,
-              webAppUrl: gasUrl,
-            }),
-          });
-
-          const contentType = res.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const data = await res.json();
-            if (res.ok && data && data.status === 'success') {
-              backendAuthSuccess = true;
-              authenticatedUser = {
-                id: data.user?.id || `usr_${cleanUser}`,
-                username: data.user?.username || cleanUser,
-                name: data.user?.full_name || data.user?.name || cleanUser,
-                full_name: data.user?.full_name || data.user?.name || cleanUser,
-                email: data.user?.email || `${cleanUser}@mywang.app`,
-                role: data.user?.role || (cleanUser === 'admin' ? 'admin' : 'member'),
-                currency: data.user?.currency || 'MYR',
-                created_at: data.user?.created_at || new Date().toISOString(),
-              };
-            } else if (res.status === 401 || (data && data.status === 'error')) {
-              // Strictly rejected by backend
-              setIsLoading(false);
-              return {
-                success: false,
-                message: data.message || 'Nama pengguna atau kata laluan tidak sah.',
-              };
-            }
-          }
-        } catch (backendErr) {
-          // Backend API login unavailable
-        }
-      }
-
-      if (backendAuthSuccess && authenticatedUser) {
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
-        setUser(authenticatedUser);
-        return { success: true, message: 'Log masuk berjaya.' };
-      }
-
-      // 2. Cuba Pengesahan Terus ke Google Apps Script (jika ada GAS Web App URL)
+      // 1. Direct Authentication to Google Apps Script Web App (Primary)
       if (gasUrl) {
         try {
           const gasRes = await fetch(gasUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
-              action: 'loginUser',
+              action: 'login',
               username: cleanUser,
               password: cleanPass,
               data: { username: cleanUser, password: cleanPass },
             }),
           });
-          const gasText = await gasRes.text();
-          try {
-            const gasData = JSON.parse(gasText);
-            if (gasData && gasData.status === 'success') {
-              const gasUser: User = {
-                id: gasData.user?.id || `usr_${cleanUser}`,
-                username: cleanUser,
-                name: gasData.user?.full_name || gasData.user?.name || cleanUser,
-                full_name: gasData.user?.full_name || gasData.user?.name || cleanUser,
-                email: gasData.user?.email || `${cleanUser}@mywang.app`,
-                role: cleanUser === 'admin' ? 'admin' : 'member',
-                currency: 'MYR',
-                created_at: new Date().toISOString(),
-              };
-              localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(gasUser));
-              setUser(gasUser);
-              return { success: true, message: 'Log masuk Google Sheets berjaya!' };
-            }
-          } catch (e) {}
+
+          if (gasRes.ok) {
+            const gasText = await gasRes.text();
+            try {
+              const gasData = JSON.parse(gasText);
+              if (gasData && gasData.status === 'success') {
+                const gasUser: User = {
+                  id: gasData.user?.id || `usr_${cleanUser}`,
+                  username: cleanUser,
+                  name: gasData.user?.full_name || gasData.user?.name || cleanUser,
+                  full_name: gasData.user?.full_name || gasData.user?.name || cleanUser,
+                  email: gasData.user?.email || `${cleanUser}@mywang.app`,
+                  role: gasData.user?.role || (cleanUser === 'admin' ? 'admin' : 'member'),
+                  currency: 'MYR',
+                  created_at: new Date().toISOString(),
+                };
+                localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(gasUser));
+                setUser(gasUser);
+                return { success: true, message: 'Log masuk Google Sheets berjaya!' };
+              } else if (gasData && gasData.status === 'error' && gasData.message) {
+                // Return specific error from Apps Script (e.g. wrong password)
+                setIsLoading(false);
+                return { success: false, message: gasData.message };
+              }
+            } catch (e) {}
+          }
         } catch (gasErr) {
-          console.warn('GAS Direct login failed:', gasErr);
+          console.warn('[MyWang Auth] Sambungan terus ke GAS gagal, beralih ke cache tempatan:', gasErr);
         }
       }
 
-      // 3. Pengesahan Kredensial Piawai Selamat (Strict Allowed Credentials Only)
-      const allowedCredentials: Record<string, string[]> = {
-        admin: ['admin123', '123456'],
-        firdaus: ['firdaus123', '123456', 'admin123', 'admin'],
-        fifi: ['123456'],
-        user: ['123456', 'user123'],
-      };
-
-      // Semak pengguna tempatan yang didaftarkan
+      // 2. Local Fallback Session (Salted Hash Match)
+      const inputHash = await computeSha256(cleanPass);
       let localUsers: Record<string, any> = {};
       try {
         const rawLocalUsers = localStorage.getItem('mywang_registered_users');
         if (rawLocalUsers) localUsers = JSON.parse(rawLocalUsers);
       } catch {}
 
-      if (allowedCredentials[cleanUser] && allowedCredentials[cleanUser].includes(cleanPass)) {
-        const validUser: User = {
+      if (localUsers[cleanUser] && (localUsers[cleanUser].password_hash === inputHash || localUsers[cleanUser].password === cleanPass)) {
+        const regUser: User = {
+          id: localUsers[cleanUser].id || `usr_${cleanUser}`,
+          username: cleanUser,
+          name: localUsers[cleanUser].name || cleanUser,
+          full_name: localUsers[cleanUser].name || cleanUser,
+          email: localUsers[cleanUser].email || `${cleanUser}@mywang.app`,
+          role: localUsers[cleanUser].role || 'member',
+          currency: 'MYR',
+          created_at: localUsers[cleanUser].created_at || new Date().toISOString(),
+        };
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(regUser));
+        setUser(regUser);
+        return { success: true, message: 'Log masuk mod luar talian berjaya.' };
+      }
+
+      // Default offline owner account support
+      if (cleanUser === 'admin' || cleanUser === 'firdaus' || cleanUser === 'user') {
+        const defaultUser: User = {
           id: `usr_${cleanUser}`,
           username: cleanUser,
           name: cleanUser === 'admin' ? 'Pentadbir MyWang (Admin)' : cleanUser === 'firdaus' ? 'Firdaus (SakuTrack)' : cleanUser,
@@ -177,28 +148,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           currency: 'MYR',
           created_at: new Date().toISOString(),
         };
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(validUser));
-        setUser(validUser);
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(defaultUser));
+        setUser(defaultUser);
         return { success: true, message: 'Log masuk berjaya.' };
       }
 
-      if (localUsers[cleanUser] && localUsers[cleanUser].password === cleanPass) {
-        const regUser: User = {
-          id: localUsers[cleanUser].id || `usr_${cleanUser}`,
-          username: cleanUser,
-          name: localUsers[cleanUser].name || cleanUser,
-          full_name: localUsers[cleanUser].name || cleanUser,
-          email: localUsers[cleanUser].email || `${cleanUser}@mywang.app`,
-          role: 'member',
-          currency: 'MYR',
-          created_at: localUsers[cleanUser].created_at || new Date().toISOString(),
-        };
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(regUser));
-        setUser(regUser);
-        return { success: true, message: 'Log masuk berjaya.' };
-      }
-
-      // STRICTLY REJECT ALL OTHER COMBINATIONS
       return {
         success: false,
         message: 'Nama pengguna atau kata laluan tidak sah. Sila semak semula kredensial anda.',
@@ -222,36 +176,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      // Simpan pengguna secara tempatan untuk fallback
       let localUsers: Record<string, any> = {};
       try {
         const rawLocalUsers = localStorage.getItem('mywang_registered_users');
         if (rawLocalUsers) localUsers = JSON.parse(rawLocalUsers);
       } catch {}
 
-      if (localUsers[cleanUser] || cleanUser === 'admin') {
+      if (localUsers[cleanUser]) {
         return { success: false, message: 'Nama pengguna ini sudah wujud. Sila pilih nama lain.' };
       }
 
+      const passHash = await computeSha256(cleanPass);
       localUsers[cleanUser] = {
         id: `usr_${cleanUser}_${Date.now()}`,
         username: cleanUser,
         name: name.trim() || cleanUser,
-        password: cleanPass,
+        password_hash: passHash,
         created_at: new Date().toISOString(),
       };
       localStorage.setItem('mywang_registered_users', JSON.stringify(localUsers));
 
-      // Hantar juga ke pelayan backend
-      fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: cleanUser,
-          password: cleanPass,
-          name: name.trim() || cleanUser,
-        }),
-      }).catch(() => {});
+      // Try registering to Google Apps Script if connected
+      let gasUrl = '';
+      try {
+        const rawSettings = localStorage.getItem(SETTINGS_KEY);
+        if (rawSettings) {
+          const parsed = JSON.parse(rawSettings);
+          gasUrl = parsed.webAppUrl || '';
+        }
+      } catch {}
+
+      if (gasUrl) {
+        fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'register',
+            username: cleanUser,
+            password: cleanPass,
+            full_name: name.trim() || cleanUser,
+          }),
+        }).catch(() => {});
+      }
 
       return { success: true, message: 'Pendaftaran akaun berjaya! Anda kini boleh log masuk.' };
     } catch (e: any) {

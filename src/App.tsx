@@ -135,9 +135,12 @@ function DashboardApp() {
     return StorageService.computeSummaryStats(accounts, transactions);
   }, [accounts, transactions]);
 
-  // Reload local storage whenever auth state or user changes
+  // Reload local storage and run one-time duplicate cleanup
   useEffect(() => {
     if (isAuthenticated) {
+      // 1. One-time clean existing duplicates in local state
+      StorageService.cleanupExistingDuplicates();
+
       const storedAccs = StorageService.getAccounts();
       const storedTxs = StorageService.getTransactions();
       const computedAccs = StorageService.computeLiveAccountBalances(storedAccs, storedTxs);
@@ -150,26 +153,58 @@ function DashboardApp() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // 1. Google Sheets sync if URL configured
+    // 1. Google Sheets initial sync if URL configured
     const config = StorageService.getGoogleSheetsConfig();
     if (config.webAppUrl && config.autoSync) {
       handleManualSync(false);
     }
 
-    // 2. Periodic sync (every 60 seconds) & window focus sync
+    // 2. Cross-Tab Real-Time Sync Channel (0ms instant sync between browser tabs)
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        channel = new BroadcastChannel('mywang_realtime_sync');
+        channel.onmessage = (event) => {
+          if (event.data === 'REFRESH_DATA' || event.data?.type === 'SYNC') {
+            const storedAccs = StorageService.getAccounts();
+            const storedTxs = StorageService.getTransactions();
+            const computedAccs = StorageService.computeLiveAccountBalances(storedAccs, storedTxs);
+            setAccounts(computedAccs);
+            setTransactions(storedTxs);
+          }
+        };
+      }
+    } catch {}
+
+    // 3. Storage Event Listener for cross-window sync fallback
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'mywang_transactions' || e.key === 'mywang_accounts') {
+        const storedAccs = StorageService.getAccounts();
+        const storedTxs = StorageService.getTransactions();
+        const computedAccs = StorageService.computeLiveAccountBalances(storedAccs, storedTxs);
+        setAccounts(computedAccs);
+        setTransactions(storedTxs);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // 4. Safe background sync (every 5 minutes / 300,000ms to respect Vercel & GAS rate limits)
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         const curConfig = StorageService.getGoogleSheetsConfig();
         if (curConfig.webAppUrl && curConfig.autoSync) {
           handleManualSync(false);
         }
-        // Flush any pending queue
         StorageService.flushPendingQueue().catch(() => {});
       }
-    }, 60000);
+    }, 300000);
 
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
+    // 5. Cooldown-guarded sync on tab visibility or window focus (min 60s cooldown)
+    let lastFocusSync = Date.now();
+    const handleImmediateSync = () => {
+      const now = Date.now();
+      if (document.visibilityState === 'visible' && now - lastFocusSync > 60000) {
+        lastFocusSync = now;
         const curConfig = StorageService.getGoogleSheetsConfig();
         if (curConfig.webAppUrl && curConfig.autoSync) {
           handleManualSync(false);
@@ -178,13 +213,19 @@ function DashboardApp() {
       }
     };
 
-    window.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('online', handleVisibility);
+    window.addEventListener('visibilitychange', handleImmediateSync);
+    window.addEventListener('focus', handleImmediateSync);
+    window.addEventListener('online', handleImmediateSync);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('online', handleVisibility);
+      if (channel) {
+        try { channel.close(); } catch {}
+      }
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('visibilitychange', handleImmediateSync);
+      window.removeEventListener('focus', handleImmediateSync);
+      window.removeEventListener('online', handleImmediateSync);
     };
   }, [isAuthenticated]);
 

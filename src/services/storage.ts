@@ -1,6 +1,7 @@
 import { Account, Transaction, CategoryItem, SummaryStats, User, AuditLog, GoogleSheetsConfig, LoanFinancing } from '../types';
 import { INITIAL_ACCOUNTS, INITIAL_INCOME_TYPES, INITIAL_EXPENSE_TYPES, INITIAL_TRANSACTIONS, INITIAL_LOGS, DEFAULT_USER, INITIAL_LOANS, INITIAL_GAS_CONFIG } from '../data/defaultData';
 import { getMalaysiaDateString, getMalaysiaTimestamp, getMalaysiaTimeString, roundToTwoDecimals } from '../utils/formatters';
+import { idb } from './indexedDb';
 
 const STORAGE_KEYS = {
   ACCOUNTS: 'mywang_accounts',
@@ -15,10 +16,136 @@ const STORAGE_KEYS = {
   DARK_MODE: 'mywang_dark_mode',
   ZEROED_FLAG: 'mywang_amounts_zeroed_v5',
   PENDING_QUEUE: 'mywang_pending_sync_queue',
-  DELETED_TX_IDS: 'mywang_deleted_tx_ids_v1'
+  DELETED_TX_IDS: 'mywang_deleted_tx_ids_v1',
+  CLEANUP_DONE_FLAG: 'mywang_dedup_cleanup_v2_done',
+  TX_BACKUP: 'mywang_transactions_backup_before_cleanup',
+  LAST_SYNC_TIME: 'mywang_last_sync_timestamp',
+};
+
+/**
+ * High-Precision Currency / Cent Utility (Eliminates floating-point error)
+ */
+export const toCents = (amount: number | string | undefined | null): number => {
+  if (amount === undefined || amount === null) return 0;
+  const num = typeof amount === 'number' ? amount : parseFloat(String(amount)) || 0;
+  return Math.round(num * 100);
+};
+
+export const fromCents = (cents: number): number => {
+  return Math.round(cents) / 100;
 };
 
 export class StorageService {
+  private static isSyncLocked = false;
+
+  /**
+   * Deterministic Stable Transaction ID Generator
+   * Generates a consistent, reproducible ID based on transaction attributes if none provided
+   */
+  static generateDeterministicTxId(tx: Partial<Transaction>): string {
+    if (tx.id && String(tx.id).trim() && !String(tx.id).startsWith('tx_sync_temp_')) {
+      return String(tx.id).trim();
+    }
+    const d = String(tx.date || getMalaysiaDateString()).slice(0, 10);
+    const t = String(tx.type || 'expense').toLowerCase();
+    const c = String(tx.category || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+    const cents = toCents(tx.amount);
+    const acc = String(tx.account_id || tx.account_name || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+    const note = String(tx.note || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '').slice(0, 15);
+    
+    // Hash simulation for deterministic string
+    let hash = 0;
+    const str = `${d}_${t}_${c}_${cents}_${acc}_${note}`;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return `tx_${d.replace(/-/g, '')}_${Math.abs(hash).toString(36)}`;
+  }
+
+  /**
+   * Content Fingerprint for Deep Deduplication
+   */
+  static makeFingerprint(tx: Partial<Transaction>): string {
+    const d = String(tx.date || tx.created_at || '').slice(0, 10);
+    const t = String(tx.type || 'expense').toLowerCase();
+    const c = String(tx.category || '').toLowerCase().trim();
+    const cents = toCents(tx.amount);
+    const acc = String(tx.account_name || tx.account_id || '').toLowerCase().trim();
+    const note = String(tx.note || '').toLowerCase().trim();
+    return `${d}|${t}|${c}|${cents}|${acc}|${note}`;
+  }
+
+  /**
+   * One-Time Automatic Database Cleanup for Existing Duplicates
+   */
+  static cleanupExistingDuplicates(): { cleaned: number; remaining: number } {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
+      if (!raw) return { cleaned: 0, remaining: 0 };
+      
+      const parsed: Transaction[] = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) return { cleaned: 0, remaining: 0 };
+
+      // Backup before cleanup
+      if (!localStorage.getItem(STORAGE_KEYS.TX_BACKUP)) {
+        localStorage.setItem(STORAGE_KEYS.TX_BACKUP, raw);
+      }
+
+      const byIdMap = new Map<string, Transaction>();
+      const fpMap = new Map<string, Transaction>();
+      const deletedIds = this.getDeletedTxIds();
+      let cleanedCount = 0;
+
+      for (const tx of parsed) {
+        if (!tx) continue;
+        const id = String(tx.id || '').trim();
+        if (!id || deletedIds.has(id)) {
+          cleanedCount++;
+          continue;
+        }
+
+        const fp = this.makeFingerprint(tx);
+
+        if (byIdMap.has(id)) {
+          // Existing ID collision -> keep the one with most details
+          const existing = byIdMap.get(id)!;
+          const merged: Transaction = {
+            ...existing,
+            ...tx,
+            receipt_url: tx.receipt_url || existing.receipt_url,
+            note: tx.note || existing.note,
+            created_at: existing.created_at || tx.created_at,
+          };
+          byIdMap.set(id, merged);
+          cleanedCount++;
+        } else if (fpMap.has(fp)) {
+          // Exact same content fingerprint under different ID -> deduplicate
+          cleanedCount++;
+        } else {
+          byIdMap.set(id, tx);
+          fpMap.set(fp, tx);
+        }
+      }
+
+      const deduplicatedList = Array.from(byIdMap.values()).sort((a, b) => {
+        const dateA = new Date(a.date || a.created_at || 0).getTime();
+        const dateB = new Date(b.date || b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+
+      if (cleanedCount > 0) {
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(deduplicatedList));
+        console.log(`[MyWang Cleanup] Dikesan & dibersihkan ${cleanedCount} transaksi berganda.`);
+      }
+
+      localStorage.setItem(STORAGE_KEYS.CLEANUP_DONE_FLAG, 'true');
+      return { cleaned: cleanedCount, remaining: deduplicatedList.length };
+    } catch (e) {
+      console.warn('[MyWang Cleanup] Gagal menjalankan pembersihan:', e);
+      return { cleaned: 0, remaining: 0 };
+    }
+  }
   /**
    * Deleted Transactions Tombstone Management (Prevents deleted items from resurrecting)
    */
@@ -189,6 +316,16 @@ export class StorageService {
     }
   }
 
+  static notifySyncUpdate() {
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const channel = new BroadcastChannel('mywang_realtime_sync');
+        channel.postMessage('REFRESH_DATA');
+        channel.close();
+      }
+    } catch {}
+  }
+
   static saveAccounts(accounts: Account[]) {
     try {
       const cleanAccounts = (accounts || []).map((acc) => ({
@@ -197,6 +334,8 @@ export class StorageService {
         credit_limit: acc.credit_limit !== undefined ? roundToTwoDecimals(acc.credit_limit) : undefined,
       }));
       localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(cleanAccounts));
+      idb.set(STORAGE_KEYS.ACCOUNTS, cleanAccounts).catch(() => {});
+      this.notifySyncUpdate();
     } catch (e) {}
   }
 
@@ -262,6 +401,8 @@ export class StorageService {
         amount: roundToTwoDecimals(tx.amount),
       }));
       localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(cleanTransactions));
+      idb.set(STORAGE_KEYS.TRANSACTIONS, cleanTransactions).catch(() => {});
+      this.notifySyncUpdate();
     } catch (e) {}
   }
 
@@ -447,58 +588,86 @@ export class StorageService {
   }
 
   /**
-   * Deduplication & Smart Merge for Transactions (Prevents any redundant data by ID or content fingerprint)
+   * Deduplication & Smart Merge for Transactions (Idempotent & Preserves Historical Data)
    */
   static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
     const byIdMap = new Map<string, Transaction>();
-    const fingerprintSet = new Set<string>();
+    const fingerprintMap = new Map<string, string>(); // fp -> txId
     const cleanLocal = this.filterDeletedTransactions(localList || []);
     const cleanIncoming = this.filterDeletedTransactions(incomingList || []);
+    const deletedIds = this.getDeletedTxIds();
 
-    const makeFingerprint = (tx: Partial<Transaction>): string => {
-      const d = String(tx.date || tx.created_at || '').slice(0, 10);
-      const t = String(tx.type || 'expense').toLowerCase();
-      const c = String(tx.category || '').toLowerCase().trim();
-      const a = (Math.round((Number(tx.amount) || 0) * 100) / 100).toFixed(2);
-      const acc = String(tx.account_name || tx.account_id || '').toLowerCase().trim();
-      const note = String(tx.note || '').toLowerCase().trim();
-      return `${d}|${t}|${c}|${a}|${acc}|${note}`;
-    };
+    let newCount = 0;
+    let updatedCount = 0;
+    let duplicateCount = 0;
 
-    // 1. Index and deduplicate local transactions
+    // 1. Index local transactions into memory
     cleanLocal.forEach((tx) => {
       if (!tx) return;
-      const cleanId = String(tx.id || '').trim();
-      if (!cleanId) return;
+      let cleanId = String(tx.id || '').trim();
+      if (!cleanId) {
+        cleanId = this.generateDeterministicTxId(tx);
+        tx = { ...tx, id: cleanId };
+      }
+      if (deletedIds.has(cleanId)) return;
 
-      const fp = makeFingerprint(tx);
-      if (!byIdMap.has(cleanId) && !fingerprintSet.has(fp)) {
+      const fp = this.makeFingerprint(tx);
+      if (!byIdMap.has(cleanId)) {
         byIdMap.set(cleanId, tx);
-        fingerprintSet.add(fp);
+        if (!fingerprintMap.has(fp)) {
+          fingerprintMap.set(fp, cleanId);
+        }
       }
     });
 
-    // 2. Merge incoming transactions without creating duplicate rows
-    cleanIncoming.forEach((tx, idx) => {
-      if (!tx) return;
-      const cleanId = String(tx.id || `tx_in_${Date.now()}_${idx}`).trim();
-      const fp = makeFingerprint(tx);
+    // 2. Merge incoming (e.g. latest 25) without duplicating or destroying history
+    cleanIncoming.forEach((incomingTx) => {
+      if (!incomingTx) return;
+      let cleanId = String(incomingTx.id || '').trim();
+      if (!cleanId) {
+        cleanId = this.generateDeterministicTxId(incomingTx);
+        incomingTx = { ...incomingTx, id: cleanId };
+      }
+      if (deletedIds.has(cleanId)) return;
+
+      const fp = this.makeFingerprint(incomingTx);
 
       if (byIdMap.has(cleanId)) {
+        // Same ID -> Update attributes
         const existing = byIdMap.get(cleanId)!;
         byIdMap.set(cleanId, {
           ...existing,
-          ...tx,
+          ...incomingTx,
           id: cleanId,
-          // Preserve any existing receipt image if incoming is empty
-          receipt_url: tx.receipt_url || existing.receipt_url,
-          created_at: existing.created_at || tx.created_at,
+          amount: roundToTwoDecimals(incomingTx.amount !== undefined ? incomingTx.amount : existing.amount),
+          receipt_url: incomingTx.receipt_url || existing.receipt_url,
+          created_at: existing.created_at || incomingTx.created_at,
         });
-      } else if (!fingerprintSet.has(fp)) {
-        byIdMap.set(cleanId, { ...tx, id: cleanId });
-        fingerprintSet.add(fp);
+        updatedCount++;
+      } else if (fingerprintMap.has(fp)) {
+        // Same content fingerprint under different ID -> Update existing record without inserting new row
+        const existingId = fingerprintMap.get(fp)!;
+        const existing = byIdMap.get(existingId)!;
+        byIdMap.set(existingId, {
+          ...existing,
+          ...incomingTx,
+          id: existingId, // Keep existing ID
+          receipt_url: incomingTx.receipt_url || existing.receipt_url,
+        });
+        duplicateCount++;
+      } else {
+        // Genuine new record -> Insert
+        byIdMap.set(cleanId, {
+          ...incomingTx,
+          id: cleanId,
+          amount: roundToTwoDecimals(incomingTx.amount),
+        });
+        fingerprintMap.set(fp, cleanId);
+        newCount++;
       }
     });
+
+    console.log(`[MyWang Sync] Merge Summary: ${newCount} baru, ${updatedCount} dikemaskini, ${duplicateCount} pendua dihindari. Total rekod disimpan: ${byIdMap.size}`);
 
     return Array.from(byIdMap.values()).sort((a, b) => {
       const dateA = new Date(a.date || a.created_at || 0).getTime();
@@ -902,30 +1071,35 @@ export class StorageService {
     }
 
     try {
-      // Helper 1: Serverless Proxy Fetch (Bypasses all CORS on Vercel & Node.js backend)
-      const fetchViaProxy = async (act: string, bodyObj: any = {}) => {
+      // Helper 1: Direct client-side POST (CORS-friendly text/plain, GAS auto-redirects 302 to JSON)
+      const fetchDirect = async (act: string, bodyObj: any = {}) => {
         try {
-          const res = await fetch('/api/gas-proxy', {
+          const postData = {
+            action: act,
+            username: activeUsername,
+            data: bodyObj,
+            ...bodyObj,
+          };
+          const res = await fetch(gasUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              webAppUrl: gasUrl,
-              action: act,
-              username: activeUsername,
-              data: bodyObj,
-            }),
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(postData),
           });
           if (res.ok) {
-            const contentType = res.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              return await res.json();
+            const txt = await res.text();
+            try {
+              return JSON.parse(txt);
+            } catch {
+              return { status: 'raw', text: txt };
             }
           }
-        } catch {}
+        } catch (e) {
+          console.warn('[MyWang GAS Direct] Direct POST failed, trying JSONP fallback:', e);
+        }
         return null;
       };
 
-      // Helper 2: JSONP GET Fetch (Guaranteed 100% bypass of CORS on any PC browser)
+      // Helper 2: JSONP GET Fetch (100% CORS-safe script injection fallback)
       const fetchViaJsonp = (act: string, params: any = {}): Promise<any> => {
         return new Promise((resolve) => {
           try {
@@ -947,7 +1121,7 @@ export class StorageService {
             timer = setTimeout(() => {
               cleanup();
               resolve(null);
-            }, 10000);
+            }, 12000);
 
             script.onerror = () => {
               cleanup();
@@ -973,47 +1147,21 @@ export class StorageService {
         });
       };
 
-      // Helper 3: Direct client-side fetch fallback
-      const fetchDirect = async (act: string, bodyObj: any = {}) => {
-        try {
-          const postData = {
-            action: act,
-            username: activeUsername,
-            data: bodyObj,
-            ...bodyObj,
-          };
-          const res = await fetch(gasUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify(postData),
-          });
-          const txt = await res.text();
-          try {
-            return JSON.parse(txt);
-          } catch {
-            return { status: 'raw', text: txt };
-          }
-        } catch {
-          return null;
-        }
-      };
-
-      // Smart executor: Try Proxy -> Try JSONP (Zero CORS) -> Try Direct
+      // Direct-First Executor: Direct HTTPS POST -> JSONP Fallback (Zero Vercel Proxy)
       const executeGasCall = async (act: string, bodyObj: any = {}) => {
-        // 1. Try Vercel / Express Backend Proxy
-        const proxyRes = await fetchViaProxy(act, bodyObj);
-        if (proxyRes && (proxyRes.status === 'success' || proxyRes.data || proxyRes.transactions || proxyRes.accounts)) {
-          return proxyRes;
+        // 1. Direct POST to Google Apps Script Web App
+        const directRes = await fetchDirect(act, bodyObj);
+        if (directRes && (directRes.status === 'success' || directRes.data || directRes.transactions || directRes.accounts)) {
+          return directRes;
         }
 
-        // 2. Try JSONP (Bypasses all PC browser CORS policies completely)
+        // 2. JSONP fallback if direct POST had CORS issues on specific browser
         const jsonpRes = await fetchViaJsonp(act, bodyObj);
         if (jsonpRes && (jsonpRes.status === 'success' || jsonpRes.data || jsonpRes.transactions || jsonpRes.accounts)) {
           return jsonpRes;
         }
 
-        // 3. Fallback direct POST
-        return await fetchDirect(act, bodyObj);
+        return directRes || jsonpRes;
       };
 
       // If testConnection or ping
@@ -1041,117 +1189,118 @@ export class StorageService {
         return { success: false, message: testRes?.message || 'Gagal menyambung ke Google Apps Script URL. Sila pastikan Web App dideploy dengan Access: Anyone & Execute as: Me.' };
       }
 
-      // If initial fetch / getInitialData / syncDashboard
-      if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions' || action === 'get_accounts') {
-        let allGasTxs: any[] = [];
-        let gasAccs: any[] = [];
-
-        const usernamesToTry = ['', activeUsername, 'user', 'admin', 'firdaus'].filter(
-          (v, i, a) => a.indexOf(v) === i
-        );
-
-        // 1. Fetch transactions across all username scopes so no sheet row is missed
-        for (const u of usernamesToTry) {
-          try {
-            const resTx = await executeGasCall('get_transactions', { username: u || undefined, all: true });
-            if (resTx && resTx.status === 'success') {
-              if (Array.isArray(resTx.transactions) && resTx.transactions.length > 0) {
-                allGasTxs.push(...resTx.transactions);
-              }
-              if (Array.isArray(resTx.accounts) && resTx.accounts.length > 0 && gasAccs.length === 0) {
-                gasAccs = resTx.accounts;
-              }
-            }
-          } catch {}
+      // If initial fetch / getInitialData / syncDashboard / getTransactions
+      if (action === 'getInitialData' || action === 'getDashboard' || action === 'syncDashboard' || action === 'get_transactions' || action === 'get_accounts' || action === 'getTransactions') {
+        if (StorageService.isSyncLocked) {
+          console.log('[MyWang Sync] Sync sedang berjalan, membatalkan panggilan serentak.');
+          return {
+            success: true,
+            data: {
+              transactions: this.getTransactions(),
+              accounts: this.getAccounts(),
+            },
+            message: 'Penyegerakan sedang diproses di latar belakang.',
+          };
         }
 
-        // Try getDashboard
-        try {
-          const resDash = await executeGasCall('getDashboard', { token: activeUsername, username: activeUsername });
-          if (resDash && (resDash.status === 'success' || resDash.data)) {
-            const dashTxs = resDash.data?.recentTransactions || resDash.data?.transactions || (Array.isArray(resDash.data) ? resDash.data : []);
-            if (Array.isArray(dashTxs) && dashTxs.length > 0) {
-              allGasTxs.push(...dashTxs);
-            }
-            if ((resDash.data?.accounts || resDash.accounts) && gasAccs.length === 0) {
-              gasAccs = resDash.data?.accounts || resDash.accounts || [];
-            }
-          }
-        } catch {}
+        StorageService.isSyncLocked = true;
+        console.log(`[MyWang Sync] Memulakan penyegerakan pantas (Maksima 25 Transaksi Terkini) untuk pengguna: ${activeUsername || 'default'}`);
 
-        // 2. Fetch accounts if still empty
-        if (gasAccs.length === 0) {
-          for (const u of usernamesToTry) {
+        try {
+          let latestGasTxs: any[] = [];
+          let gasAccs: any[] = [];
+
+          // 1. FAST SINGLE-SHOT CALL - STRICT LIMIT 25
+          try {
+            const fastBundle = await executeGasCall('getInitialData', { username: activeUsername, limit: 25 });
+            if (fastBundle && (fastBundle.status === 'success' || fastBundle.accounts || fastBundle.transactions || fastBundle.data)) {
+              if (Array.isArray(fastBundle.transactions) && fastBundle.transactions.length > 0) {
+                latestGasTxs = fastBundle.transactions.slice(0, 25);
+              } else if (Array.isArray(fastBundle.data?.transactions) && fastBundle.data.transactions.length > 0) {
+                latestGasTxs = fastBundle.data.transactions.slice(0, 25);
+              }
+
+              if (Array.isArray(fastBundle.accounts) && fastBundle.accounts.length > 0) {
+                gasAccs = fastBundle.accounts;
+              } else if (Array.isArray(fastBundle.data?.accounts) && fastBundle.data.accounts.length > 0) {
+                gasAccs = fastBundle.data.accounts;
+              }
+            }
+          } catch (err) {
+            console.warn('[MyWang Sync] Fast bundle error:', err);
+          }
+
+          // Fallback single query if needed
+          if (latestGasTxs.length === 0 && gasAccs.length === 0) {
             try {
-              const resAcc1 = await executeGasCall('get_accounts', { username: u || undefined });
-              if (resAcc1 && resAcc1.status === 'success' && Array.isArray(resAcc1.accounts) && resAcc1.accounts.length > 0) {
-                gasAccs = resAcc1.accounts;
-                break;
-              } else if (resAcc1 && Array.isArray(resAcc1.data) && resAcc1.data.length > 0) {
-                gasAccs = resAcc1.data;
-                break;
+              const resTx = await executeGasCall('get_transactions', { username: activeUsername, limit: 25 });
+              if (resTx && resTx.status === 'success') {
+                if (Array.isArray(resTx.transactions)) latestGasTxs = resTx.transactions.slice(0, 25);
+                if (Array.isArray(resTx.accounts)) gasAccs = resTx.accounts;
               }
             } catch {}
           }
-        }
 
-        if (gasAccs.length === 0) {
+          // Normalize incoming transactions
+          const normalizedTxs = this.normalizeRawTransactions(latestGasTxs);
+          console.log(`[MyWang Sync] Menerima ${normalizedTxs.length} transaksi dari pelayan.`);
+
+          // Process and merge accounts safely (Preserving accurate balances)
+          let normalizedAccs: Account[] = [];
+          if (Array.isArray(gasAccs) && gasAccs.length > 0) {
+            const rawParsedAccs = this.normalizeRawAccounts(gasAccs);
+            const existingAccs = this.getAccounts();
+            const mergedMap = new Map<string, Account>();
+            existingAccs.forEach((a) => mergedMap.set(a.id, a));
+            
+            rawParsedAccs.forEach((incoming) => {
+              const current = mergedMap.get(incoming.id);
+              if (current) {
+                mergedMap.set(incoming.id, {
+                  ...current,
+                  ...incoming,
+                  // Keep local balance if incoming balance is not explicitly valid number
+                  balance: typeof incoming.balance === 'number' && !isNaN(incoming.balance) ? incoming.balance : current.balance,
+                  weight_grams: incoming.weight_grams || current.weight_grams,
+                  avg_price_per_gram: incoming.avg_price_per_gram || current.avg_price_per_gram,
+                  total_invested: incoming.total_invested || current.total_invested,
+                });
+              } else {
+                mergedMap.set(incoming.id, incoming);
+              }
+            });
+            normalizedAccs = this.normalizeAccounts(Array.from(mergedMap.values()));
+            this.saveAccounts(normalizedAccs);
+          } else {
+            normalizedAccs = this.getAccounts();
+          }
+
+          // Merge latest 25 with full local history without loss or duplication
+          let combinedTxs = this.getTransactions();
+          if (normalizedTxs.length > 0) {
+            combinedTxs = this.mergeAndDeduplicateTransactions(combinedTxs, normalizedTxs);
+            this.saveTransactions(combinedTxs);
+          }
+
+          // Update config timestamp
+          config.isConnected = true;
+          config.lastSynced = getMalaysiaTimeString(new Date(), false);
+          this.saveGoogleSheetsConfig(config);
           try {
-            const resAcc2 = await executeGasCall('getAccounts', {});
-            if (resAcc2 && (resAcc2.status === 'success' || Array.isArray(resAcc2.data))) {
-              gasAccs = resAcc2.data || resAcc2.accounts || [];
-            }
+            localStorage.setItem(STORAGE_KEYS.LAST_SYNC_TIME, String(Date.now()));
           } catch {}
+
+          return {
+            success: true,
+            data: {
+              transactions: combinedTxs,
+              accounts: normalizedAccs,
+            },
+            message: `Penyegerakan pantas berjaya! (${normalizedTxs.length} transaksi diselaraskan, ${combinedTxs.length} rekod disimpan).`,
+          };
+        } finally {
+          StorageService.isSyncLocked = false;
         }
-
-        // Normalize transactions and accounts
-        const normalizedTxs = this.normalizeRawTransactions(allGasTxs);
-        let normalizedAccs: Account[] = [];
-
-        if (Array.isArray(gasAccs) && gasAccs.length > 0) {
-          const rawParsedAccs = this.normalizeRawAccounts(gasAccs);
-          const existingAccs = this.getAccounts();
-          const mergedMap = new Map<string, Account>();
-          existingAccs.forEach((a) => mergedMap.set(a.id, a));
-          rawParsedAccs.forEach((incoming) => {
-            const current = mergedMap.get(incoming.id);
-            if (current) {
-              mergedMap.set(incoming.id, {
-                ...current,
-                ...incoming,
-                balance: incoming.balance !== undefined && incoming.balance !== null ? incoming.balance : current.balance,
-                weight_grams: incoming.weight_grams || current.weight_grams,
-                avg_price_per_gram: incoming.avg_price_per_gram || current.avg_price_per_gram,
-                total_invested: incoming.total_invested || current.total_invested,
-              });
-            } else {
-              mergedMap.set(incoming.id, incoming);
-            }
-          });
-          normalizedAccs = this.normalizeAccounts(Array.from(mergedMap.values()));
-          this.saveAccounts(normalizedAccs);
-        } else {
-          normalizedAccs = this.getAccounts();
-        }
-
-        let combinedTxs = this.getTransactions();
-        if (normalizedTxs.length > 0) {
-          combinedTxs = this.mergeAndDeduplicateTransactions(combinedTxs, normalizedTxs);
-          this.saveTransactions(combinedTxs);
-        }
-
-        config.isConnected = true;
-        config.lastSynced = getMalaysiaTimeString(new Date(), false);
-        this.saveGoogleSheetsConfig(config);
-
-        return {
-          success: true,
-          data: {
-            transactions: combinedTxs,
-            accounts: normalizedAccs,
-          },
-          message: `Diselaraskan ${normalizedAccs.length} akaun & ${combinedTxs.length} transaksi dari Google Sheets!`,
-        };
       }
 
       // Handle updateAccount / saveAccount / edit_account / addAccount

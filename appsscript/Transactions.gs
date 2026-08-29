@@ -28,6 +28,7 @@ function getTransactionsList(params) {
 
   var filterUser = params ? (params.username || params.token || '') : '';
   if (filterUser) filterUser = String(filterUser).trim().toLowerCase();
+  var limit = (params && params.limit) ? Number(params.limit) : 25;
 
   for (var i = data.length - 1; i >= 1; i--) { // Reverse order (newest first)
     var row = data[i];
@@ -93,6 +94,10 @@ function getTransactionsList(params) {
       created_at: txCreated,
       CreatedAt: txCreated
     });
+
+    if (transactions.length >= limit) {
+      break;
+    }
   }
 
   return { status: 'success', data: transactions, transactions: transactions };
