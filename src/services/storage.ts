@@ -73,11 +73,171 @@ export class StorageService {
     const cents = toCents(tx.amount);
     const acc = String(tx.account_name || tx.account_id || '').toLowerCase().trim();
     const note = String(tx.note || '').toLowerCase().trim();
+
+    if (t === 'transfer' || c.includes('pindahan') || c.includes('transfer')) {
+      const toAcc = String(tx.to_account_name || tx.to_account_id || '').toLowerCase().trim();
+      return `${d}|transfer|${cents}|${acc}|${toAcc}`;
+    }
+
     return `${d}|${t}|${c}|${cents}|${acc}|${note}`;
   }
 
   /**
-   * One-Time Automatic Database Cleanup for Existing Duplicates
+   * Sanitize, deduplicate, and fuse legacy split transfer pairs (Pindahan Keluar + Masuk)
+   * into clean, atomic dual-entry transfer transactions.
+   */
+  static sanitizeAndFuseTransfers(transactions: Transaction[]): Transaction[] {
+    const deletedIds = this.getDeletedTxIds();
+    const validTxs = (transactions || []).filter((t) => t && t.id && !deletedIds.has(t.id));
+
+    const existingTransfers: Transaction[] = [];
+    const legacyOutflows: Transaction[] = [];
+    const legacyInflows: Transaction[] = [];
+    const normalTransactions: Transaction[] = [];
+
+    validTxs.forEach((tx) => {
+      const catLower = (tx.category || '').toLowerCase();
+      const noteLower = (tx.note || '').toLowerCase();
+      const typeLower = (tx.type || '').toLowerCase();
+
+      if (typeLower === 'transfer' || catLower === 'pindahan dana') {
+        let toAccName = tx.to_account_name;
+        if (!toAccName && tx.note && tx.note.includes('[Ke:')) {
+          const m = tx.note.match(/\[Ke:\s*([^\]]+)\]/);
+          if (m && m[1]) toAccName = m[1].trim();
+        }
+
+        existingTransfers.push({
+          ...tx,
+          type: 'transfer',
+          category: 'Pindahan Dana',
+          to_account_name: toAccName || tx.to_account_name,
+          amount: roundToTwoDecimals(tx.amount),
+        });
+      } else if (catLower.includes('pindahan keluar') || (typeLower === 'expense' && (noteLower.includes('pindahan ke') || noteLower.includes('[ke:')))) {
+        legacyOutflows.push(tx);
+      } else if (catLower.includes('pindahan masuk') || (typeLower === 'income' && (noteLower.includes('pindahan dari') || noteLower.includes('[dari:')))) {
+        legacyInflows.push(tx);
+      } else {
+        normalTransactions.push(tx);
+      }
+    });
+
+    // Deduplicate transfers among themselves
+    const dedupedTransfers: Transaction[] = [];
+    const transferFpSet = new Set<string>();
+
+    existingTransfers.forEach((tf) => {
+      const d = String(tf.date || '').slice(0, 10);
+      const cents = toCents(tf.amount);
+      const src = String(tf.account_name || tf.account_id || '').toLowerCase().trim();
+      const dst = String(tf.to_account_name || tf.to_account_id || '').toLowerCase().trim();
+      const key = `${d}|${cents}|${src}|${dst}`;
+      if (!transferFpSet.has(key)) {
+        transferFpSet.add(key);
+        dedupedTransfers.push(tf);
+      }
+    });
+
+    // Fuse legacy pairs or convert legacy single-leg transfers
+    const usedInflowIds = new Set<string>();
+    legacyOutflows.forEach((outTx) => {
+      const d = String(outTx.date || '').slice(0, 10);
+      const cents = toCents(outTx.amount);
+
+      let targetName = '';
+      const mKe = (outTx.note || '').match(/(?:pindahan ke|\[ke:)\s*([^,.\n\]]+)/i);
+      if (mKe && mKe[1]) targetName = mKe[1].trim();
+
+      // Check if already represented in dedupedTransfers
+      const alreadyHasTransfer = dedupedTransfers.some((tf) => {
+        const tfDate = String(tf.date || '').slice(0, 10);
+        const tfCents = toCents(tf.amount);
+        return tfDate === d && tfCents === cents;
+      });
+
+      if (alreadyHasTransfer) {
+        return;
+      }
+
+      // Find matching inflow
+      const matchingIn = legacyInflows.find((inTx) => {
+        if (usedInflowIds.has(inTx.id)) return false;
+        const inDate = String(inTx.date || '').slice(0, 10);
+        const inCents = toCents(inTx.amount);
+        return inDate === d && inCents === cents;
+      });
+
+      if (matchingIn) {
+        usedInflowIds.add(matchingIn.id);
+        const toAccName = matchingIn.account_name || targetName || 'Penerima';
+        const fusedTransfer: Transaction = {
+          id: `tf_${outTx.id}`,
+          date: outTx.date,
+          type: 'transfer',
+          category: 'Pindahan Dana',
+          amount: roundToTwoDecimals(outTx.amount),
+          account_id: outTx.account_id,
+          account_name: outTx.account_name,
+          to_account_id: matchingIn.account_id,
+          to_account_name: toAccName,
+          note: outTx.note || `Pindahan dari ${outTx.account_name} ke ${toAccName}`,
+          created_at: outTx.created_at || new Date().toISOString(),
+        };
+        dedupedTransfers.push(fusedTransfer);
+      } else {
+        const fusedTransfer: Transaction = {
+          id: `tf_${outTx.id}`,
+          date: outTx.date,
+          type: 'transfer',
+          category: 'Pindahan Dana',
+          amount: roundToTwoDecimals(outTx.amount),
+          account_id: outTx.account_id,
+          account_name: outTx.account_name,
+          to_account_id: outTx.to_account_id,
+          to_account_name: targetName || outTx.to_account_name,
+          note: outTx.note || `Pindahan Keluar`,
+          created_at: outTx.created_at || new Date().toISOString(),
+        };
+        dedupedTransfers.push(fusedTransfer);
+      }
+    });
+
+    legacyInflows.forEach((inTx) => {
+      if (usedInflowIds.has(inTx.id)) return;
+      const d = String(inTx.date || '').slice(0, 10);
+      const cents = toCents(inTx.amount);
+      const alreadyHasTransfer = dedupedTransfers.some((tf) => {
+        const tfDate = String(tf.date || '').slice(0, 10);
+        const tfCents = toCents(tf.amount);
+        return tfDate === d && tfCents === cents;
+      });
+      if (alreadyHasTransfer) return;
+
+      const fusedTransfer: Transaction = {
+        id: `tf_${inTx.id}`,
+        date: inTx.date,
+        type: 'transfer',
+        category: 'Pindahan Dana',
+        amount: roundToTwoDecimals(inTx.amount),
+        account_id: inTx.to_account_id || inTx.account_id,
+        account_name: inTx.account_name,
+        note: inTx.note || 'Pindahan Masuk',
+        created_at: inTx.created_at || new Date().toISOString(),
+      };
+      dedupedTransfers.push(fusedTransfer);
+    });
+
+    const combined = [...dedupedTransfers, ...normalTransactions];
+    return combined.sort((a, b) => {
+      const dateA = new Date(a.date || a.created_at || 0).getTime();
+      const dateB = new Date(b.date || b.created_at || 0).getTime();
+      return dateB - dateA;
+    });
+  }
+
+  /**
+   * Automatic Database Cleanup for Existing Duplicates and Transfer Inconsistencies
    */
   static cleanupExistingDuplicates(): { cleaned: number; remaining: number } {
     try {
@@ -97,7 +257,10 @@ export class StorageService {
       const deletedIds = this.getDeletedTxIds();
       let cleanedCount = 0;
 
-      for (const tx of parsed) {
+      // Pass 1: Sanitize and fuse transfer representations
+      const sanitized = this.sanitizeAndFuseTransfers(parsed);
+
+      for (const tx of sanitized) {
         if (!tx) continue;
         const id = String(tx.id || '').trim();
         if (!id || deletedIds.has(id)) {
@@ -108,7 +271,6 @@ export class StorageService {
         const fp = this.makeFingerprint(tx);
 
         if (byIdMap.has(id)) {
-          // Existing ID collision -> keep the one with most details
           const existing = byIdMap.get(id)!;
           const merged: Transaction = {
             ...existing,
@@ -120,7 +282,6 @@ export class StorageService {
           byIdMap.set(id, merged);
           cleanedCount++;
         } else if (fpMap.has(fp)) {
-          // Exact same content fingerprint under different ID -> deduplicate
           cleanedCount++;
         } else {
           byIdMap.set(id, tx);
@@ -134,9 +295,10 @@ export class StorageService {
         return dateB - dateA;
       });
 
-      if (cleanedCount > 0) {
+      if (cleanedCount > 0 || deduplicatedList.length !== parsed.length) {
         localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(deduplicatedList));
-        console.log(`[MyWang Cleanup] Dikesan & dibersihkan ${cleanedCount} transaksi berganda.`);
+        idb.set(STORAGE_KEYS.TRANSACTIONS, deduplicatedList).catch(() => {});
+        console.log(`[MyWang Cleanup] Dikesan & dibersihkan ${cleanedCount} transaksi berganda/bertindan.`);
       }
 
       localStorage.setItem(STORAGE_KEYS.CLEANUP_DONE_FLAG, 'true');
@@ -384,11 +546,11 @@ export class StorageService {
     try {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
-      const filtered = this.filterDeletedTransactions(parsed);
-      if (filtered.length !== parsed.length) {
-        this.saveTransactions(filtered);
+      const sanitized = this.sanitizeAndFuseTransfers(parsed);
+      if (sanitized.length !== parsed.length) {
+        this.saveTransactions(sanitized);
       }
-      return filtered;
+      return sanitized;
     } catch {
       return [];
     }
@@ -396,7 +558,8 @@ export class StorageService {
 
   static saveTransactions(transactions: Transaction[]) {
     try {
-      const cleanTransactions = this.filterDeletedTransactions(transactions || []).map((tx) => ({
+      const sanitized = this.sanitizeAndFuseTransfers(transactions || []);
+      const cleanTransactions = sanitized.map((tx) => ({
         ...tx,
         amount: roundToTwoDecimals(tx.amount),
       }));
@@ -570,10 +733,16 @@ export class StorageService {
     let expenseThisMonth = 0;
 
     transactions.forEach((tx) => {
-      const cleanDate = this.parseCleanDate(tx.date || tx.created_at);
-      if (cleanDate && cleanDate.startsWith(currentMonthPrefix)) {
-        if (tx.type === 'income') incomeThisMonth += Number(tx.amount) || 0;
-        else if (tx.type === 'expense') expenseThisMonth += Number(tx.amount) || 0;
+      const isTransfer = tx.type === 'transfer' ||
+        (tx.category && (tx.category.toLowerCase().includes('pindahan') || tx.category.toLowerCase().includes('transfer'))) ||
+        (tx.note && (tx.note.toLowerCase().includes('pindahan ke') || tx.note.toLowerCase().includes('pindahan dari')));
+
+      if (!isTransfer) {
+        const cleanDate = this.parseCleanDate(tx.date || tx.created_at);
+        if (cleanDate && cleanDate.startsWith(currentMonthPrefix)) {
+          if (tx.type === 'income') incomeThisMonth += Number(tx.amount) || 0;
+          else if (tx.type === 'expense') expenseThisMonth += Number(tx.amount) || 0;
+        }
       }
     });
 
@@ -593,8 +762,8 @@ export class StorageService {
   static mergeAndDeduplicateTransactions(localList: Transaction[], incomingList: Transaction[]): Transaction[] {
     const byIdMap = new Map<string, Transaction>();
     const fingerprintMap = new Map<string, string>(); // fp -> txId
-    const cleanLocal = this.filterDeletedTransactions(localList || []);
-    const cleanIncoming = this.filterDeletedTransactions(incomingList || []);
+    const cleanLocal = this.sanitizeAndFuseTransfers(localList || []);
+    const cleanIncoming = this.sanitizeAndFuseTransfers(incomingList || []);
     const deletedIds = this.getDeletedTxIds();
 
     let newCount = 0;
@@ -669,11 +838,8 @@ export class StorageService {
 
     console.log(`[MyWang Sync] Merge Summary: ${newCount} baru, ${updatedCount} dikemaskini, ${duplicateCount} pendua dihindari. Total rekod disimpan: ${byIdMap.size}`);
 
-    return Array.from(byIdMap.values()).sort((a, b) => {
-      const dateA = new Date(a.date || a.created_at || 0).getTime();
-      const dateB = new Date(b.date || b.created_at || 0).getTime();
-      return dateB - dateA;
-    });
+    const result = Array.from(byIdMap.values());
+    return this.sanitizeAndFuseTransfers(result);
   }
 
   /**
@@ -911,18 +1077,31 @@ export class StorageService {
       const accName = tx.account_name || tx.source || tx.method || tx.account || 'Maybank - Savings Account';
       const accId = tx.account_id || mapSourceToId(accName);
       const isIncome = String(tx.type).toLowerCase() === 'income';
+      const isTransfer = String(tx.type).toLowerCase() === 'transfer' || String(tx.category || '').toLowerCase().includes('pindahan dana');
+
+      let toAccName = tx.to_account_name || tx.ToAccount || tx.to_account || undefined;
+      let noteStr = String(tx.note || '').trim();
+      if (!toAccName && noteStr.includes('[Ke:')) {
+        const m = noteStr.match(/\[Ke:\s*([^\]]+)\]/);
+        if (m && m[1]) toAccName = m[1].trim();
+      }
+
+      let toAccId = tx.to_account_id;
+      if (!toAccId && toAccName) {
+        toAccId = mapSourceToId(toAccName);
+      }
 
       return {
         id: String(tx.id || tx.TxID || `tx_sync_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`),
         date: cleanDate,
-        type: isIncome ? 'income' : tx.type === 'transfer' ? 'transfer' : 'expense',
-        category: tx.category || tx.income_type || tx.expense_type || 'Lain-lain',
+        type: isIncome ? 'income' : isTransfer ? 'transfer' : 'expense',
+        category: isTransfer ? 'Pindahan Dana' : (tx.category || tx.income_type || tx.expense_type || 'Lain-lain'),
         amount: roundToTwoDecimals(Math.abs(parseFloat(tx.amount) || 0)),
         account_id: accId,
         account_name: accName,
-        to_account_id: tx.to_account_id,
-        to_account_name: tx.to_account_name,
-        note: tx.note || '',
+        to_account_id: toAccId,
+        to_account_name: toAccName,
+        note: noteStr,
         receipt_url: tx.receipt || tx.receipt_url || undefined,
         created_at: String(tx.created_at || cleanDate),
       };
@@ -1378,6 +1557,9 @@ export class StorageService {
       // Handle recordTransfer / transferMoney / transfer
       if (action === 'recordTransfer' || action === 'transferMoney' || action === 'transfer' || action === 'transfer_money') {
         const transferPayload = {
+          TxID: payload.TxID || payload.id || payload.txId || ('tf_' + Date.now()),
+          id: payload.TxID || payload.id || payload.txId || ('tf_' + Date.now()),
+          txId: payload.TxID || payload.id || payload.txId || ('tf_' + Date.now()),
           from_account_id: payload.from_account_id || payload.from_account || payload.from,
           to_account_id: payload.to_account_id || payload.to_account || payload.to,
           from_account_name: payload.from_account_name || payload.from_bank,
@@ -1389,10 +1571,25 @@ export class StorageService {
           note: payload.note || 'Pindahan Antara Akaun',
           Username: payload.username || activeUsername || 'user',
           username: payload.username || activeUsername || 'user',
+          from_balance: payload.from_balance !== undefined ? payload.from_balance : undefined,
+          to_balance: payload.to_balance !== undefined ? payload.to_balance : undefined,
         };
 
         const transferRes = await executeGasCall('transferMoney', transferPayload);
         return { success: true, data: transferRes?.data, message: transferRes?.message || 'Pindahan berjaya diselaraskan ke Google Sheets!' };
+      }
+
+      // Handle deleteTransaction / delete_transaction
+      if (action === 'deleteTransaction' || action === 'delete_transaction') {
+        const txId = payload.TxID || payload.id || payload.transaction_id;
+        const delRes = await executeGasCall('deleteTransaction', { TxID: txId, id: txId, transaction_id: txId });
+        return { success: true, message: delRes?.message || 'Transaksi berjaya dipadam dari Google Sheets.' };
+      }
+
+      // Handle updateTransaction / update_transaction
+      if (action === 'updateTransaction' || action === 'update_transaction') {
+        const updateRes = await executeGasCall('updateTransaction', payload);
+        return { success: true, message: updateRes?.message || 'Transaksi berjaya dikemaskini di Google Sheets.' };
       }
 
       // Generic pass-through
