@@ -258,41 +258,175 @@ function deduplicateSheetTransactions() {
   return { status: 'success', removedCount: rowsToDelete.length };
 }
 
-function handleTransferMoney(transferData) {
-  var fromId = transferData.from_account_id || transferData.from_account || transferData.from;
-  var toId = transferData.to_account_id || transferData.to_account || transferData.to;
-  var amount = Number(transferData.amount);
+function findAccountRowIndex(accData, headers, searchKey) {
+  if (!searchKey || accData.length <= 1) return -1;
+  var target = String(searchKey).trim().toLowerCase();
+  var idIdx = headers.indexOf('AccountID');
+  if (idIdx === -1) idIdx = headers.indexOf('id');
+  var nameIdx = headers.indexOf('AccountName');
+  if (nameIdx === -1) nameIdx = headers.indexOf('account_name');
+  if (nameIdx === -1) nameIdx = headers.indexOf('bank');
 
-  if (!fromId || !toId || !amount || amount <= 0) {
-    return { status: 'error', message: 'Maklumat akaun sumber, sasaran dan jumlah diperlukan.' };
+  for (var i = 1; i < accData.length; i++) {
+    var aId = idIdx !== -1 ? String(accData[i][idIdx] || '').trim().toLowerCase() : '';
+    var aName = nameIdx !== -1 ? String(accData[i][nameIdx] || '').trim().toLowerCase() : '';
+    if (aId === target || aName === target || target === (aName + ' - ' + aName)) {
+      return i;
+    }
   }
 
-  // Record as 2 transactions or transfer
-  var today = transferData.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'yyyy-MM-dd');
-  
-  // 1. Outflow from source
-  handleAddTransaction({
-    Type: 'expense',
-    Date: today,
-    Category: 'Pindahan Keluar',
-    Method: 'Online Transfer',
-    Source: fromId,
-    Amount: amount,
-    Note: transferData.note || ('Pindahan ke ' + toId)
-  });
+  var isGoPlus = target.indexOf('go+') !== -1 || target.indexOf('goplus') !== -1 || target.indexOf('pelaburan') !== -1 || target.indexOf('acc_1786841487737') !== -1;
+  for (var i = 1; i < accData.length; i++) {
+    var aId = idIdx !== -1 ? String(accData[i][idIdx] || '').trim().toLowerCase() : '';
+    var aName = nameIdx !== -1 ? String(accData[i][nameIdx] || '').trim().toLowerCase() : '';
+    var isAccGoPlus = aName.indexOf('go+') !== -1 || aName.indexOf('goplus') !== -1 || aName.indexOf('pelaburan') !== -1 || aId === 'acc_1786841487737';
+    if (isGoPlus && isAccGoPlus) return i;
+    if (!isGoPlus && !isAccGoPlus && (target.indexOf(aName) !== -1 || aName.indexOf(target) !== -1 || target.indexOf(aId) !== -1)) {
+      return i;
+    }
+  }
+  return -1;
+}
 
-  // 2. Inflow to target
-  handleAddTransaction({
-    Type: 'income',
-    Date: today,
-    Category: 'Pindahan Masuk',
-    Method: 'Online Transfer',
-    Source: toId,
-    Amount: amount,
-    Note: transferData.note || ('Pindahan dari ' + fromId)
-  });
+function handleTransferMoney(transferData) {
+  if (!transferData) return { status: 'error', message: 'Maklumat pindahan diperlukan.' };
 
-  return { status: 'success', message: 'Pindahan dana RM ' + amount + ' berjaya.' };
+  var amount = Number(transferData.amount) || 0;
+  if (amount <= 0) {
+    return { status: 'error', message: 'Jumlah pindahan tidak sah.' };
+  }
+
+  var fromName = String(transferData.from_account_name || transferData.from_bank || transferData.from_account || transferData.from || 'Maybank').trim();
+  var fromId = String(transferData.from_account_id || transferData.from || '').trim();
+  var toName = String(transferData.to_account_name || transferData.to_bank || transferData.to_account || transferData.to || 'Touch \'n Go eWallet').trim();
+  var toId = String(transferData.to_account_id || transferData.to || '').trim();
+  var userNote = String(transferData.note || '').trim();
+
+  var txId = String(transferData.TxID || transferData.id || transferData.txId || ('tf_' + new Date().getTime())).trim();
+  var user = transferData.username || 'user';
+  var date = transferData.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'yyyy-MM-dd');
+
+  var ss = getSpreadsheet();
+  var txSheet = getTransactionsSheet(ss);
+  var accSheet = getAccountsSheet(ss);
+
+  // 1. Update Accounts sheet atomically
+  if (accSheet) {
+    var accData = accSheet.getDataRange().getValues();
+    var accHeaders = accData[0].map(function(h) { return String(h || '').trim(); });
+    var balIdx = accHeaders.indexOf('InitialBalance');
+    if (balIdx === -1) balIdx = accHeaders.indexOf('balance');
+    if (balIdx === -1) balIdx = accHeaders.indexOf('Balance');
+
+    if (balIdx !== -1) {
+      var fromRow = findAccountRowIndex(accData, accHeaders, fromId);
+      if (fromRow === -1) fromRow = findAccountRowIndex(accData, accHeaders, fromName);
+
+      var toRow = findAccountRowIndex(accData, accHeaders, toId);
+      if (toRow === -1) toRow = findAccountRowIndex(accData, accHeaders, toName);
+
+      if (fromRow !== -1) {
+        var curFrom = Number(accData[fromRow][balIdx]) || 0;
+        var newFrom = (transferData.from_balance !== undefined && !isNaN(Number(transferData.from_balance)))
+          ? Number(transferData.from_balance)
+          : (Math.round((curFrom - amount) * 100) / 100);
+        accSheet.getRange(fromRow + 1, balIdx + 1).setValue(newFrom);
+      }
+
+      if (toRow !== -1) {
+        var curTo = Number(accData[toRow][balIdx]) || 0;
+        var newTo = (transferData.to_balance !== undefined && !isNaN(Number(transferData.to_balance)))
+          ? Number(transferData.to_balance)
+          : (Math.round((curTo + amount) * 100) / 100);
+        accSheet.getRange(toRow + 1, balIdx + 1).setValue(newTo);
+      }
+    }
+  }
+
+  // 2. Write SINGLE transfer record to Transactions sheet
+  var txData = txSheet.getDataRange().getValues();
+  var txHeaders = txData[0].map(function(h) { return String(h || '').trim(); });
+  var idCol = txHeaders.indexOf('TxID');
+  if (idCol === -1) idCol = txHeaders.indexOf('id');
+
+  var existingTxRow = -1;
+  if (idCol !== -1 && txData.length > 1) {
+    for (var r = 1; r < txData.length; r++) {
+      if (String(txData[r][idCol]).trim() === txId) {
+        existingTxRow = r + 1;
+        break;
+      }
+    }
+  }
+
+  var formattedNote = userNote;
+  if (formattedNote.indexOf('[Ke:') === -1) {
+    formattedNote = '[Ke: ' + toName + '] ' + (userNote || ('Pindahan dari ' + fromName));
+  }
+
+  var rowMap = {
+    'TxID': txId,
+    'id': txId,
+    'Username': user,
+    'username': user,
+    'Type': 'transfer',
+    'type': 'transfer',
+    'Date': date,
+    'date': date,
+    'Category': 'Pindahan Dana',
+    'category': 'Pindahan Dana',
+    'Method': 'Online Transfer',
+    'method': 'Online Transfer',
+    'Source': fromName,
+    'source': fromName,
+    'ToAccount': toName,
+    'to_account': toName,
+    'Amount': amount,
+    'amount': amount,
+    'Discount': 0,
+    'discount': 0,
+    'Note': formattedNote,
+    'note': formattedNote,
+    'ReceiptURL': '',
+    'receipt_url': '',
+    'CreatedAt': new Date().toISOString(),
+    'created_at': new Date().toISOString()
+  };
+
+  if (existingTxRow !== -1) {
+    for (var h = 0; h < txHeaders.length; h++) {
+      var colName = txHeaders[h];
+      if (rowMap[colName] !== undefined) {
+        txSheet.getRange(existingTxRow, h + 1).setValue(rowMap[colName]);
+      }
+    }
+  } else {
+    var newRow = [];
+    for (var h = 0; h < txHeaders.length; h++) {
+      var colName = txHeaders[h];
+      newRow.push(rowMap[colName] !== undefined ? rowMap[colName] : '');
+    }
+    txSheet.appendRow(newRow);
+  }
+
+  addAuditLog('TRANSFER', 'Pindahan RM ' + amount.toFixed(2) + ' dari ' + fromName + ' ke ' + toName);
+
+  return {
+    status: 'success',
+    message: 'Pindahan dana RM ' + amount.toFixed(2) + ' berjaya.',
+    id: txId,
+    txId: txId,
+    data: {
+      id: txId,
+      type: 'transfer',
+      category: 'Pindahan Dana',
+      from_account_name: fromName,
+      to_account_name: toName,
+      amount: amount,
+      date: date,
+      note: formattedNote
+    }
+  };
 }
 
 function handleUpdateTransaction(tx) {
@@ -344,17 +478,81 @@ function handleDeleteTransaction(txId) {
   var txSheet = getTransactionsSheet(ss);
   if (!txSheet) return { status: 'error', message: 'Sheet Transactions tidak dijumpai.' };
 
-  var data = txSheet.getDataRange().getValues();
-  var headers = data[0].map(function(h) { return String(h || '').trim(); });
-  var idIdx = headers.indexOf('TxID');
-  if (idIdx === -1) idIdx = headers.indexOf('id');
+  var txData = txSheet.getDataRange().getValues();
+  var txHeaders = txData[0].map(function(h) { return String(h || '').trim(); });
+  var idIdx = txHeaders.indexOf('TxID');
+  if (idIdx === -1) idIdx = txHeaders.indexOf('id');
+  if (idIdx === -1) return { status: 'error', message: 'Kolum TxID tidak dijumpai.' };
 
+  var typeIdx = txHeaders.indexOf('Type');
+  if (typeIdx === -1) typeIdx = txHeaders.indexOf('type');
+  var amtIdx = txHeaders.indexOf('Amount');
+  if (amtIdx === -1) amtIdx = txHeaders.indexOf('amount');
+  var srcIdx = txHeaders.indexOf('Source');
+  if (srcIdx === -1) srcIdx = txHeaders.indexOf('source');
+  var noteIdx = txHeaders.indexOf('Note');
+  if (noteIdx === -1) noteIdx = txHeaders.indexOf('note');
+
+  var accSheet = getAccountsSheet(ss);
   var targetId = String(txId).trim();
 
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idIdx]).trim() === targetId) {
+  for (var i = 1; i < txData.length; i++) {
+    if (String(txData[i][idIdx]).trim() === targetId) {
+      var row = txData[i];
+      var txType = typeIdx !== -1 ? String(row[typeIdx] || '').toLowerCase() : 'expense';
+      var txAmt = amtIdx !== -1 ? (Number(row[amtIdx]) || 0) : 0;
+      var txSrc = srcIdx !== -1 ? String(row[srcIdx] || '').trim() : '';
+      var txNote = noteIdx !== -1 ? String(row[noteIdx] || '').trim() : '';
+
+      // Revert balances
+      if (accSheet && txAmt > 0) {
+        var accData = accSheet.getDataRange().getValues();
+        var accHeaders = accData[0].map(function(h) { return String(h || '').trim(); });
+        var balIdx = accHeaders.indexOf('InitialBalance');
+        if (balIdx === -1) balIdx = accHeaders.indexOf('balance');
+        if (balIdx === -1) balIdx = accHeaders.indexOf('Balance');
+
+        if (balIdx !== -1) {
+          if (txType === 'transfer') {
+            var fromRow = findAccountRowIndex(accData, accHeaders, txSrc);
+            if (fromRow !== -1) {
+              var curFrom = Number(accData[fromRow][balIdx]) || 0;
+              accSheet.getRange(fromRow + 1, balIdx + 1).setValue(Math.round((curFrom + txAmt) * 100) / 100);
+            }
+
+            var toAccName = '';
+            var toIdx = txHeaders.indexOf('ToAccount');
+            if (toIdx !== -1 && row[toIdx]) toAccName = String(row[toIdx]).trim();
+            if (!toAccName && txNote.indexOf('[Ke:') !== -1) {
+              var m = txNote.match(/\[Ke:\s*([^\]]+)\]/);
+              if (m && m[1]) toAccName = m[1].trim();
+            }
+
+            if (toAccName) {
+              var toRow = findAccountRowIndex(accData, accHeaders, toAccName);
+              if (toRow !== -1) {
+                var curTo = Number(accData[toRow][balIdx]) || 0;
+                accSheet.getRange(toRow + 1, balIdx + 1).setValue(Math.round((curTo - txAmt) * 100) / 100);
+              }
+            }
+          } else if (txType === 'expense') {
+            var srcRow = findAccountRowIndex(accData, accHeaders, txSrc);
+            if (srcRow !== -1) {
+              var cur = Number(accData[srcRow][balIdx]) || 0;
+              accSheet.getRange(srcRow + 1, balIdx + 1).setValue(Math.round((cur + txAmt) * 100) / 100);
+            }
+          } else if (txType === 'income') {
+            var srcRow = findAccountRowIndex(accData, accHeaders, txSrc);
+            if (srcRow !== -1) {
+              var cur = Number(accData[srcRow][balIdx]) || 0;
+              accSheet.getRange(srcRow + 1, balIdx + 1).setValue(Math.round((cur - txAmt) * 100) / 100);
+            }
+          }
+        }
+      }
+
       txSheet.deleteRow(i + 1);
-      addAuditLog('DELETE_TRANSACTION', 'Padam transaksi ID: ' + targetId);
+      addAuditLog('DELETE_TRANSACTION', 'Padam transaksi ID: ' + targetId + ' & baki diselaraskan.');
       return { status: 'success', message: 'Transaksi berjaya dipadam dari Google Sheets.' };
     }
   }
