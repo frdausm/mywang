@@ -367,8 +367,12 @@ function DashboardApp() {
     StorageService.saveAccounts(updatedAccounts);
 
     // Record Dual-Entry Transfer Transaction
+    const newTxId = 'tf_' + Date.now();
+    const fromNewBal = updatedAccounts.find((a) => a.id === fromAcc.id)?.balance ?? 0;
+    const toNewBal = updatedAccounts.find((a) => a.id === toAcc.id)?.balance ?? 0;
+
     const newTx: Transaction = {
-      id: 'tf_' + Date.now(),
+      id: newTxId,
       date: transferData.date,
       account_id: fromAcc.id,
       account_name: `${fromAcc.bank} - ${fromAcc.account_name}`,
@@ -392,11 +396,16 @@ function DashboardApp() {
     
     const fullTransferPayload = {
       ...transferData,
+      id: newTxId,
+      TxID: newTxId,
+      txId: newTxId,
       amount: transferAmt,
       from_account_name: `${fromAcc.bank} - ${fromAcc.account_name}`,
       to_account_name: `${toAcc.bank} - ${toAcc.account_name}`,
       from_bank: fromAcc.bank,
       to_bank: toAcc.bank,
+      from_balance: fromNewBal,
+      to_balance: toNewBal,
       username: user?.username || 'user',
     };
     StorageService.enqueueSync('recordTransfer', fullTransferPayload);
@@ -607,8 +616,8 @@ function DashboardApp() {
       setLogs(newLogs);
     }
     addToast('info', 'Transaksi berjaya dipadam.');
-    StorageService.enqueueSync('deleteTransaction', { id, transaction_id: id });
-    StorageService.syncWithGAS('deleteTransaction', { id, transaction_id: id }).catch(() => {});
+    StorageService.enqueueSync('deleteTransaction', { id, TxID: id, transaction_id: id });
+    StorageService.syncWithGAS('deleteTransaction', { id, TxID: id, transaction_id: id }).catch(() => {});
   };
 
   // 8. Save Categories (Income / Expense)
