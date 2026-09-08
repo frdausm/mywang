@@ -343,10 +343,18 @@ function DashboardApp() {
     date: string;
     note: string;
   }) => {
-    const fromAcc = accounts.find((a) => a.id === transferData.from_account_id);
-    const toAcc = accounts.find((a) => a.id === transferData.to_account_id);
+    const fromAcc = accounts.find((a) => a.id === transferData.from_account_id) || matchAccount(transferData.from_account_id, undefined, accounts);
+    const toAcc = accounts.find((a) => a.id === transferData.to_account_id) || matchAccount(transferData.to_account_id, undefined, accounts);
 
-    if (!fromAcc || !toAcc) return;
+    if (!fromAcc || !toAcc) {
+      addToast('error', 'Gagal memproses pindahan: Akaun sumber atau penerima tidak ditemui.');
+      return;
+    }
+
+    if (fromAcc.id === toAcc.id) {
+      addToast('info', 'Akaun sumber dan penerima tidak boleh akaun yang sama.');
+      return;
+    }
 
     const transferAmt = Number(transferData.amount) || 0;
 
