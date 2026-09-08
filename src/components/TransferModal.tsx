@@ -1,7 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Account, Transaction } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Account } from '../types';
 import { formatCurrency, getMalaysiaDateString, roundToTwoDecimals } from '../utils/formatters';
-import { X, ArrowLeftRight, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import { 
+  ArrowLeftRight, 
+  X, 
+  Send, 
+  Calendar, 
+  FileText, 
+  AlertCircle,
+  ShieldCheck,
+  CheckCircle2,
+  Check
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface TransferModalProps {
@@ -9,7 +19,7 @@ interface TransferModalProps {
   accounts: Account[];
   initialSourceAccount?: Account | null;
   onClose: () => void;
-  onTransfer: (transferData: {
+  onTransfer: (data: {
     from_account_id: string;
     to_account_id: string;
     amount: number;
@@ -32,31 +42,64 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  
+  const wasOpenRef = useRef(false);
 
+  // Initialize or reset ONLY when modal opens (transition from closed to open)
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       setDate(getMalaysiaDateString());
-    }
-  }, [isOpen]);
+      setAmount('');
+      setNote('');
+      setError('');
 
-  useEffect(() => {
-    if (accounts.length > 0) {
-      const defaultFrom = initialSourceAccount ? initialSourceAccount.id : accounts[0].id;
-      setFromAccountId(defaultFrom);
+      if (accounts && accounts.length > 0) {
+        const defaultFrom = initialSourceAccount ? initialSourceAccount.id : accounts[0].id;
+        setFromAccountId(defaultFrom);
 
-      // Find first different account for destination
-      const otherAcc = accounts.find((a) => a.id !== defaultFrom);
-      if (otherAcc) {
-        setToAccountId(otherAcc.id);
+        const otherAcc = accounts.find((a) => a.id !== defaultFrom);
+        if (otherAcc) {
+          setToAccountId(otherAcc.id);
+        } else {
+          setToAccountId(accounts[0].id);
+        }
       }
     }
-  }, [accounts, initialSourceAccount, isOpen]);
+    wasOpenRef.current = isOpen;
+  }, [isOpen, initialSourceAccount, accounts]);
+
+  // If accounts list changes while modal is open (e.g. background sync),
+  // preserve existing user selections if they still exist in the new account list
+  useEffect(() => {
+    if (!isOpen || accounts.length === 0) return;
+
+    // Check if current fromAccountId is still valid
+    const fromStillValid = accounts.some((a) => a.id === fromAccountId);
+    if (!fromStillValid && accounts.length > 0) {
+      setFromAccountId(accounts[0].id);
+    }
+
+    // Check if current toAccountId is still valid
+    const toStillValid = accounts.some((a) => a.id === toAccountId);
+    if (!toStillValid && accounts.length > 0) {
+      const fallbackTo = accounts.find((a) => a.id !== fromAccountId) || accounts[0];
+      setToAccountId(fallbackTo.id);
+    }
+  }, [accounts, isOpen, fromAccountId, toAccountId]);
 
   if (!isOpen) return null;
 
   const fromAcc = accounts.find((a) => a.id === fromAccountId);
   const toAcc = accounts.find((a) => a.id === toAccountId);
   const numAmount = roundToTwoDecimals(amount);
+
+  const handleSwapAccounts = () => {
+    if (fromAccountId && toAccountId && fromAccountId !== toAccountId) {
+      const temp = fromAccountId;
+      setFromAccountId(toAccountId);
+      setToAccountId(temp);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +111,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     }
 
     if (fromAccountId === toAccountId) {
-      setError('Akaun sumber dan penerima tidak boleh sama.');
+      setError('Akaun sumber dan penerima tidak boleh sama. Sila pilih akaun berlainan.');
       return;
     }
 
@@ -78,15 +121,20 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     }
 
     setIsSubmitting(true);
-    await onTransfer({
-      from_account_id: fromAccountId,
-      to_account_id: toAccountId,
-      amount: numAmount,
-      date,
-      note: note.trim() || `Pindahan dari ${fromAcc?.account_name} ke ${toAcc?.account_name}`,
-    });
-    setIsSubmitting(false);
-    onClose();
+    try {
+      await onTransfer({
+        from_account_id: fromAccountId,
+        to_account_id: toAccountId,
+        amount: numAmount,
+        date,
+        note: note.trim() || `Pindahan dari ${fromAcc?.account_name || fromAcc?.bank} ke ${toAcc?.account_name || toAcc?.bank}`,
+      });
+      setIsSubmitting(false);
+      onClose();
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setError(err?.message || 'Gagal melaksanakan pindahan. Sila cuba lagi.');
+    }
   };
 
   return (
@@ -131,7 +179,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             )}
 
             {/* Source & Destination Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative items-end">
               
               {/* From Account */}
               <div>
@@ -141,33 +189,69 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                 <select
                   id="select_transfer_from"
                   value={fromAccountId}
-                  onChange={(e) => setFromAccountId(e.target.value)}
+                  onChange={(e) => {
+                    const newFrom = e.target.value;
+                    setFromAccountId(newFrom);
+                    if (newFrom === toAccountId) {
+                      const other = accounts.find((a) => a.id !== newFrom);
+                      if (other) setToAccountId(other.id);
+                    }
+                  }}
                   className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 >
                   {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
+                    <option key={acc.id} value={acc.id} className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
                       {acc.bank} - {acc.account_name} ({formatCurrency(acc.balance)})
                     </option>
                   ))}
                 </select>
               </div>
 
+              {/* Swap Button (Desktop / Mobile friendly) */}
+              <div className="hidden sm:flex absolute left-1/2 top-[58%] -translate-x-1/2 -translate-y-1/2 z-10">
+                <button
+                  type="button"
+                  onClick={handleSwapAccounts}
+                  title="Tukar Arah Sumber/Penerima"
+                  className="p-1.5 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 shadow-sm text-slate-500 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500 transition-all cursor-pointer"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
               {/* To Account */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Ke Akaun (Penerima)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Ke Akaun (Penerima)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSwapAccounts}
+                    className="sm:hidden text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 hover:underline"
+                  >
+                    <ArrowLeftRight className="w-2.5 h-2.5" /> Tukar
+                  </button>
+                </div>
                 <select
                   id="select_transfer_to"
                   value={toAccountId}
                   onChange={(e) => setToAccountId(e.target.value)}
                   className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 >
-                  {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.bank} - {acc.account_name} ({formatCurrency(acc.balance)})
-                    </option>
-                  ))}
+                  {accounts.map((acc) => {
+                    const isSource = acc.id === fromAccountId;
+                    return (
+                      <option 
+                        key={acc.id} 
+                        value={acc.id} 
+                        disabled={isSource}
+                        className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-40"
+                      >
+                        {acc.bank} - {acc.account_name} ({formatCurrency(acc.balance)}) {isSource ? ' [Akaun Sumber]' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>
